@@ -1,5 +1,8 @@
-import {FreeGame} from "@/entrypoints/types/freeGame.ts";
-import {Platforms} from "@/entrypoints/enums/platforms.ts";
+import { useState, useEffect } from 'react';
+import { FreeGame } from "@/entrypoints/types/freeGame.ts";
+import { Platforms } from "@/entrypoints/enums/platforms.ts";
+import { fetchOpenCriticScore, fetchProtonDbTier } from "@/entrypoints/utils/badgeService.ts";
+import type { ProtonDbSummary } from "@/entrypoints/types/badgeData.ts";
 
 /** Maps each platform to a brand color for the badge */
 const PLATFORM_COLORS: Record<string, string> = {
@@ -55,7 +58,98 @@ const URGENCY_STYLES: Record<string, React.CSSProperties> = {
     high:   { color: "#ef4444", borderColor: "rgba(239,68,68,0.35)",  background: "rgba(239,68,68,0.08)"  },
 };
 
-function GameCard({game, showDesc}: {game: FreeGame, showDesc: boolean}) {
+// ── OpenCritic badge ──────────────────────────────────────────────────────────
+
+function openCriticColor(score: number): string {
+    if (score >= 80) return "#10b981"; // green
+    if (score >= 60) return "#f59e0b"; // yellow
+    return "#ef4444";                  // red
+}
+
+function OpenCriticBadge({ gameName }: { gameName: string }) {
+    const [score, setScore] = useState<number | null | undefined>(undefined);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetchOpenCriticScore(gameName).then(s => { if (!cancelled) setScore(s); });
+        return () => { cancelled = true; };
+    }, [gameName]);
+
+    if (score === undefined || score === null) return null;
+
+    const color = openCriticColor(score);
+    return (
+        <span
+            className="countdown-badge"
+            title={browser.i18n.getMessage('badge_opencritic')}
+            style={{ color, borderColor: color + '55', background: color + '18', fontVariantNumeric: 'tabular-nums' }}
+        >
+            ⭐ {score}
+        </span>
+    );
+}
+
+// ── ProtonDB badge ────────────────────────────────────────────────────────────
+
+const PROTON_TIER_STYLES: Record<string, React.CSSProperties> = {
+    platinum: { color: "#e5e7eb", borderColor: "rgba(229,231,235,0.5)", background: "rgba(229,231,235,0.1)" },
+    gold:     { color: "#fbbf24", borderColor: "rgba(251,191,36,0.5)",  background: "rgba(251,191,36,0.1)"  },
+    silver:   { color: "#94a3b8", borderColor: "rgba(148,163,184,0.5)", background: "rgba(148,163,184,0.1)" },
+    bronze:   { color: "#b45309", borderColor: "rgba(180,83,9,0.5)",    background: "rgba(180,83,9,0.1)"    },
+    borked:   { color: "#ef4444", borderColor: "rgba(239,68,68,0.5)",   background: "rgba(239,68,68,0.1)"   },
+    pending:  { color: "#6b7280", borderColor: "rgba(107,114,128,0.5)", background: "rgba(107,114,128,0.1)" },
+};
+
+const PROTON_TIER_ICONS: Record<string, string> = {
+    platinum: "🏆",
+    gold:     "🥇",
+    silver:   "🥈",
+    bronze:   "🥉",
+    borked:   "💀",
+    pending:  "⏳",
+};
+
+const PROTON_I18N_KEYS: Record<string, string> = {
+    platinum: 'badge_steam_deck_platinum',
+    gold:     'badge_steam_deck_gold',
+    silver:   'badge_steam_deck_silver',
+    borked:   'badge_steam_deck_borked',
+};
+
+/** Extracts a Steam App ID from a Steam store URL */
+function extractSteamAppId(link: string): string | null {
+    const m = link.match(/\/app\/(\d+)/);
+    return m ? m[1] : null;
+}
+
+function ProtonDbBadge({ link }: { link: string }) {
+    const appId = extractSteamAppId(link);
+    const [tier, setTier] = useState<ProtonDbSummary['tier'] | null | undefined>(undefined);
+
+    useEffect(() => {
+        if (!appId) return;
+        let cancelled = false;
+        fetchProtonDbTier(appId).then(t => { if (!cancelled) setTier(t); });
+        return () => { cancelled = true; };
+    }, [appId]);
+
+    if (!appId || tier === undefined || tier === null || tier === 'pending') return null;
+    const label = PROTON_I18N_KEYS[tier] ? browser.i18n.getMessage(PROTON_I18N_KEYS[tier]) : tier;
+
+    return (
+        <span
+            className="countdown-badge"
+            title={label}
+            style={PROTON_TIER_STYLES[tier] ?? PROTON_TIER_STYLES.pending}
+        >
+            {PROTON_TIER_ICONS[tier] ?? "🎮"} {label}
+        </span>
+    );
+}
+
+// ── GameCard ──────────────────────────────────────────────────────────────────
+
+function GameCard({ game, showDesc }: { game: FreeGame; showDesc: boolean }) {
     const color     = PLATFORM_COLORS[game.platform] ?? "#555";
     const icon      = PLATFORM_ICONS[game.platform]  ?? "🎮";
     const countdown = game.future ? null : getCountdown(game.endDate);
@@ -86,6 +180,9 @@ function GameCard({game, showDesc}: {game: FreeGame, showDesc: boolean}) {
                                 🔜 Coming soon
                             </span>
                         )}
+                        {/* Dynamic score badges — lazy loaded, graceful fallback */}
+                        {!game.future && <OpenCriticBadge gameName={game.title} />}
+                        {!game.future && game.platform === Platforms.Steam && <ProtonDbBadge link={game.link} />}
                     </div>
                     {(game.description && showDesc) && (
                         <p className="game-description">{game.description}</p>

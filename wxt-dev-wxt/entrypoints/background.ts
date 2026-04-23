@@ -16,8 +16,10 @@ const STEAM_GAMES_URL = "https://store.steampowered.com/search/?sort_by=Price_AS
 // We open the home page and let the content script scrape + claim.
 const AMAZON_GAMES_URL = "https://luna.amazon.com/claims/home";
 
-const ALARM_NAME          = "checkFreeGames";
-const TAB_LOAD_TIMEOUT_MS = 45_000;
+const ALARM_NAME           = "checkFreeGames";
+const SESSION_ALARM_NAME   = "sessionCheck";
+const SESSION_ALARM_PERIOD = 720; // 12 hours in minutes
+const TAB_LOAD_TIMEOUT_MS  = 45_000;
 
 let isChecking = false;
 
@@ -37,15 +39,22 @@ export default defineBackground({
       if (alarm.name === ALARM_NAME) {
         void this.handleAlarmTriggered();
       }
+      if (alarm.name === SESSION_ALARM_NAME) {
+        void this.silentSessionCheck();
+      }
     });
 
     void browser.action.setBadgeBackgroundColor({ color: "#8b5cf6" }); // violet — LootNova brand color
     await this.initializeAlarms();
+    // Register the 12-hour session check alarm once (idempotent)
+    await this.initializeSessionAlarm();
   },
 
   async handleStartup() {
     // Check login status immediately so the popup shows accurate indicators
     void this.checkLoginStatuses();
+    // Run a silent session check on startup too
+    void this.silentSessionCheck();
     const result = await getStorageItems(["active", "claimFrequency"]);
     if (!result?.active) return;
     const frequency = result.claimFrequency || ClaimFrequency.DAILY;
@@ -118,6 +127,96 @@ export default defineBackground({
         if (existingAlarm && existingAlarm.periodInMinutes === minutes) return;
       } catch (_) {}
       await browser.alarms.create(ALARM_NAME, { periodInMinutes: minutes });
+    }
+  },
+
+  /** Creates the 12-hour session-check alarm if it doesn't exist yet. */
+  async initializeSessionAlarm() {
+    try {
+      const existing = await browser.alarms.get(SESSION_ALARM_NAME);
+      if (existing) return; // already registered, nothing to do
+      await browser.alarms.create(SESSION_ALARM_NAME, { periodInMinutes: SESSION_ALARM_PERIOD });
+      console.log('[LootNova] Session check alarm registered (12h).');
+    } catch (e) {
+      console.warn('[LootNova] Could not register session alarm:', e);
+    }
+  },
+
+  /**
+   * Silently hits auth endpoints for GOG, Epic and Amazon with credentials.
+   * If the server returns 401/403 (or a login redirect) and the user was
+   * previously logged in, fires a localized session-expired notification.
+   */
+  async silentSessionCheck() {
+    interface PlatformCheck {
+      name: string;
+      url: string;
+      storageKey: string;
+      /** Additional test beyond HTTP status: runs on the parsed JSON body */
+      isLoggedIn?: (body: unknown) => boolean;
+    }
+
+    const platforms: PlatformCheck[] = [
+      {
+        name: 'GOG',
+        url: 'https://auth.gog.com/userData.json',
+        storageKey: 'gogLoggedIn',
+      },
+      {
+        name: 'Epic',
+        url: 'https://www.epicgames.com/account/v2/profile/ajaxGet',
+        storageKey: 'epicLoggedIn',
+      },
+      {
+        name: 'Amazon',
+        url: 'https://gaming.amazon.com/player/a/profile',
+        storageKey: 'amazonLoggedIn',
+        // Amazon may redirect (200 with login page) instead of proper 401
+        isLoggedIn: (body: unknown) => {
+          if (typeof body !== 'object' || body === null) return false;
+          const b = body as Record<string, unknown>;
+          return !!(b.playerId || b.userId || b.customerId);
+        },
+      },
+    ];
+
+    for (const platform of platforms) {
+      try {
+        const prevLoggedIn = await getStorageItem(platform.storageKey);
+        // Only alert if we knew the user was logged in before
+        if (prevLoggedIn !== true) continue;
+
+        const resp = await fetch(platform.url, {
+          credentials: 'include',
+          signal: AbortSignal.timeout(8_000),
+        });
+
+        let nowLoggedIn = resp.ok;
+        if (nowLoggedIn && platform.isLoggedIn) {
+          try {
+            const body: unknown = await resp.json();
+            nowLoggedIn = platform.isLoggedIn(body);
+          } catch { nowLoggedIn = false; }
+        }
+
+        if (!nowLoggedIn) {
+          // Session expired — fire localized notification
+          const title   = browser.i18n.getMessage('session_expired_title');
+          const message = browser.i18n.getMessage('session_expired_body', [platform.name]);
+          browser.notifications.create(`session-silent-${platform.name}-${Date.now()}`, {
+            type: 'basic',
+            iconUrl: browser.runtime.getURL('/icon/128.png'),
+            title,
+            message,
+          });
+          // Update stored state so we don't spam notifications
+          await setStorageItem(platform.storageKey, false);
+          console.log(`[LootNova] Session expired detected via silent check: ${platform.name}`);
+        }
+      } catch (e) {
+        // Network error — don't assume logged out, stay silent
+        console.warn(`[LootNova] silentSessionCheck failed for ${platform.name}:`, e);
+      }
     }
   },
 

@@ -1,11 +1,93 @@
-import {useStorage} from "@/entrypoints/hooks/useStorage.ts";
+import { useState, useEffect, useCallback } from 'react';
+import { useStorage } from "@/entrypoints/hooks/useStorage.ts";
 import OnButton from "@/entrypoints/components/OnButton.tsx";
-import {ManualClaimBtn} from "@/entrypoints/components/ManualClaimBtn.tsx";
+import { ManualClaimBtn } from "@/entrypoints/components/ManualClaimBtn.tsx";
 import Checkbox from "@/entrypoints/components/Checkbox.tsx";
 import FrequencySelect from "@/entrypoints/components/FrequencySelect.tsx";
-import { ClaimFrequency } from "@/entrypoints/enums/claimFrequency.ts";
+import { ClaimFrequency, ClaimFrequencyMinutes } from "@/entrypoints/enums/claimFrequency.ts";
 import { MessageRequest } from "@/entrypoints/types/messageRequest.ts";
 import LoginStatus from "@/entrypoints/components/LoginStatus.tsx";
+import { getStorageItem } from "@/entrypoints/hooks/useStorage.ts";
+
+// ── Next-autoclaim countdown ──────────────────────────────────────────────────
+
+/**
+ * Formats a millisecond duration as HH:MM:SS.
+ * Used for the monospaced next-autoclaim timer.
+ */
+function formatDuration(ms: number): string {
+    if (ms <= 0) return "00:00:00";
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
+}
+
+function NextClaimCountdown({ frequency }: { frequency: ClaimFrequency }) {
+    const [remaining, setRemaining] = useState<number | null>(null);
+
+    const computeRemaining = useCallback(async () => {
+        if (frequency === ClaimFrequency.BROWSER_START) {
+            setRemaining(null);
+            return;
+        }
+        const lastOpened = await getStorageItem("lastOpened") as string | null;
+        if (!lastOpened) {
+            setRemaining(null);
+            return;
+        }
+        const periodMs = (ClaimFrequencyMinutes[frequency] ?? 1440) * 60_000;
+        const elapsed  = Date.now() - new Date(lastOpened).getTime();
+        const left     = Math.max(0, periodMs - elapsed);
+        setRemaining(left);
+    }, [frequency]);
+
+    // Initial load + refresh on frequency change
+    useEffect(() => {
+        void computeRemaining();
+    }, [computeRemaining]);
+
+    // Tick every second
+    useEffect(() => {
+        const id = setInterval(() => {
+            setRemaining(prev => {
+                if (prev === null) return null;
+                const next = prev - 1000;
+                return next > 0 ? next : 0;
+            });
+        }, 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    if (remaining === null) return null;
+
+    return (
+        <div className="next-claim-row">
+            <span className="next-claim-label">
+                {browser.i18n.getMessage("next_autoclaim_label")}
+            </span>
+            <span className="next-claim-timer">{formatDuration(remaining)}</span>
+        </div>
+    );
+}
+
+// ── Hero Stats ────────────────────────────────────────────────────────────────
+
+function HeroStats({ counter }: { counter: number }) {
+    return (
+        <div className="hero-stats">
+            <div className="hero-stat-item">
+                <span className="hero-stat-number">{counter}</span>
+                <span className="hero-stat-label">
+                    {browser.i18n.getMessage("gamesClaimed")}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
 
 function Settings() {
     const [counter]        = useStorage<number>("counter", 0);
@@ -25,9 +107,13 @@ function Settings() {
 
     return (
         <div className="tab-content">
-            <h1>LootNova</h1>
-            <p className="tagline">{browser.i18n.getMessage("tagline")}</p>
-            <p className="counter-text">{browser.i18n.getMessage("gamesClaimed")} <strong>{counter}</strong></p>
+            {/* ── Hero Header ── */}
+            <div className="nova-hero">
+                <h1>LootNova</h1>
+                <p className="tagline">{browser.i18n.getMessage("tagline")}</p>
+                <HeroStats counter={counter} />
+                <NextClaimCountdown frequency={claimFrequency} />
+            </div>
 
             <OnButton/>
 

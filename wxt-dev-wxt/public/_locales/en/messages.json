@@ -34,5 +34,20 @@
   "historyEmpty": { "message": "No games claimed yet." },
   "historyEmptySub": { "message": "Claimed games will appear here automatically." },
   "historyCount": { "message": "games claimed" },
-  "historyClear": { "message": "Clear history" }
+  "historyClear": { "message": "Clear history" },
+  "session_expired_title": { "message": "Session Expired" },
+  "session_expired_body": {
+    "message": "Your $STORE$ session has expired. Log in again to keep auto-claiming.",
+    "placeholders": { "store": { "content": "$1", "example": "GOG" } }
+  },
+  "badge_opencritic": { "message": "OpenCritic Score" },
+  "badge_steam_deck_platinum": { "message": "Steam Deck: Platinum" },
+  "badge_steam_deck_gold": { "message": "Steam Deck: Gold" },
+  "badge_steam_deck_silver": { "message": "Steam Deck: Silver" },
+  "badge_steam_deck_borked": { "message": "Steam Deck: Not Working" },
+  "stat_total_claimed": {
+    "message": "$COUNT$ Games Claimed",
+    "placeholders": { "count": { "content": "$1", "example": "42" } }
+  },
+  "next_autoclaim_label": { "message": "Next auto-claim in" }
 }

@@ -34,5 +34,20 @@
   "historyEmpty": { "message": "Aún no has reclamado ningún juego." },
   "historyEmptySub": { "message": "Los juegos reclamados aparecerán aquí automáticamente." },
   "historyCount": { "message": "juegos reclamados" },
-  "historyClear": { "message": "Limpiar historial" }
+  "historyClear": { "message": "Limpiar historial" },
+  "session_expired_title": { "message": "Sesión Expirada" },
+  "session_expired_body": {
+    "message": "Tu sesión en $STORE$ ha expirado. Inicia sesión nuevamente para seguir reclamando.",
+    "placeholders": { "store": { "content": "$1", "example": "GOG" } }
+  },
+  "badge_opencritic": { "message": "Puntuación OpenCritic" },
+  "badge_steam_deck_platinum": { "message": "Steam Deck: Platino" },
+  "badge_steam_deck_gold": { "message": "Steam Deck: Oro" },
+  "badge_steam_deck_silver": { "message": "Steam Deck: Plata" },
+  "badge_steam_deck_borked": { "message": "Steam Deck: No Funciona" },
+  "stat_total_claimed": {
+    "message": "$COUNT$ Juegos Reclamados",
+    "placeholders": { "count": { "content": "$1", "example": "42" } }
+  },
+  "next_autoclaim_label": { "message": "Próximo auto-claim en" }
 }

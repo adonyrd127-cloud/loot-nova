@@ -22,11 +22,16 @@ export default defineConfig({
       'https://luna.amazon.com/*',
       // Amazon account (same-origin for login detection)
       'https://www.amazon.com/*',
-      // GOG — for auto-redeeming Amazon Gaming codes
+      // GOG — for auto-redeeming Amazon Gaming codes + session check
       'https://www.gog.com/*',
-      // Epic Games store (cookie login check)
+      'https://auth.gog.com/*',
+      // Epic Games store (cookie login check + session check)
       'https://www.epicgames.com/*',
       'https://store.epicgames.com/*',
+      // OpenCritic — game score badges
+      'https://api.opencritic.com/*',
+      // ProtonDB — Steam Deck compatibility badges
+      'https://www.protondb.com/*',
     ],
     browser_specific_settings: {
       gecko: {

@@ -614,3 +614,106 @@ a:hover {
 .tab-content > *:nth-child(3) { animation-delay: 0.15s; }
 .tab-content > *:nth-child(4) { animation-delay: 0.2s; }
 .tab-content > *:nth-child(5) { animation-delay: 0.25s; }
+
+/* ── novaGlow — pulsing glow on Manual Claim when active ── */
+@keyframes novaGlow {
+  0%, 100% {
+    box-shadow:
+      0 4px 15px rgba(139, 92, 246, 0.35),
+      0 0   0px  rgba(139, 92, 246, 0);
+  }
+  50% {
+    box-shadow:
+      0 4px 30px rgba(139, 92, 246, 0.7),
+      0 0   20px rgba(236, 72, 153, 0.5);
+  }
+}
+
+/* Applied programmatically via .nova-glow class on the button */
+.manual-btn.nova-glow:not(:disabled) {
+  animation: novaGlow 2s ease-in-out infinite;
+}
+
+/* ── Nova Hero section ── */
+.nova-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(
+    160deg,
+    rgba(109, 40, 217, 0.18) 0%,
+    rgba(139, 92, 246, 0.10) 50%,
+    rgba(236, 72, 153, 0.12) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 1.4rem 1.5rem 1rem;
+  gap: 0.4rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Hero stats row */
+.hero-stats {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.hero-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.hero-stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(135deg, #10b981, #34d399);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-stat-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Next auto-claim countdown */
+.next-claim-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  padding: 0.35rem 0.9rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-full);
+}
+
+.next-claim-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+/* Monospaced timer — uses tabular figures for stable width */
+.next-claim-timer {
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-accent-primary);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  min-width: 4.2rem;
+  text-align: right;
+}
+
