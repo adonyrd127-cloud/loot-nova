@@ -15,6 +15,50 @@ import {
 } from "@/entrypoints/utils/helpers.ts";
 import {defineContentScript} from "wxt/utils/define-content-script";
 
+// ── Shadow DOM overlay helpers ──────────────────────────────────────────────────────
+// Using a closed ShadowRoot ensures Epic’s global CSS never leaks into our UI.
+
+function createClaimOverlay(gameTitle?: string): HTMLElement {
+    const host = document.createElement('div');
+    host.id = 'loot-nova-overlay-host';
+    host.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483647;pointer-events:none;';
+    document.body.appendChild(host);
+
+    const shadow = host.attachShadow({ mode: 'closed' });
+    const badge = document.createElement('div');
+    badge.style.cssText = [
+        'display:flex;align-items:center;gap:10px;',
+        'background:linear-gradient(135deg,#6d28d9,#8b5cf6);',
+        'color:#fff;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;',
+        'padding:10px 16px;border-radius:12px;',
+        'box-shadow:0 4px 20px rgba(139,92,246,.45);',
+        'animation:ln-fadein .3s ease;',
+    ].join('');
+
+    const style = document.createElement('style');
+    style.textContent = '@keyframes ln-fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}';
+    shadow.appendChild(style);
+
+    const spinner = document.createElement('span');
+    spinner.textContent = '🎮';
+    spinner.style.cssText = 'font-size:16px;animation:ln-spin 1.2s linear infinite;display:inline-block;';
+    style.textContent += '@keyframes ln-spin{to{transform:rotate(360deg)}}';
+
+    const text = document.createElement('span');
+    text.textContent = gameTitle
+        ? `LootNova: reclamando “${gameTitle}”…`
+        : 'LootNova: reclamando juego…';
+
+    badge.appendChild(spinner);
+    badge.appendChild(text);
+    shadow.appendChild(badge);
+    return host;
+}
+
+function removeClaimOverlay(host: HTMLElement | null) {
+    try { host?.remove(); } catch(_) {}
+}
+
 export default defineContentScript({
     matches: ['https://store.epicgames.com/*'],
     main(_: any) {
@@ -98,13 +142,21 @@ export default defineContentScript({
         async function claimCurrentFreeGame() {
             await waitForPageLoad();
             await wait(getRndInteger(100, 500));
-            await clickWhenVisible('[data-testid="purchase-cta-button"]');
-            await wait(getRndInteger(100, 500));
-            await tryClickDeviceNotSupportedContinue();
-            await clickWhenVisibleIframe('#webPurchaseContainer iframe', 'button.payment-btn.payment-order-confirm__btn');
-            await wait(getRndInteger(100, 500));
-            await clickWhenVisibleIframe('#webPurchaseContainer iframe', 'button.payment-confirm__btn.payment-btn--primary');
-            await incrementCounter();
+
+            // Show an isolated Shadow DOM overlay so the user knows LootNova is working
+            const pageTitle = document.title.replace(/\s*[|-].*$/, '').trim() || undefined;
+            const overlay = createClaimOverlay(pageTitle);
+            try {
+                await clickWhenVisible('[data-testid="purchase-cta-button"]');
+                await wait(getRndInteger(100, 500));
+                await tryClickDeviceNotSupportedContinue();
+                await clickWhenVisibleIframe('#webPurchaseContainer iframe', 'button.payment-btn.payment-order-confirm__btn');
+                await wait(getRndInteger(100, 500));
+                await clickWhenVisibleIframe('#webPurchaseContainer iframe', 'button.payment-confirm__btn.payment-btn--primary');
+                await incrementCounter();
+            } finally {
+                removeClaimOverlay(overlay);
+            }
         }
 
         async function tryClickDeviceNotSupportedContinue() {

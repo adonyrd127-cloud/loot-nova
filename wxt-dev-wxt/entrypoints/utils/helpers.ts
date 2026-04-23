@@ -1,4 +1,5 @@
 import {mergeIntoStorageItem} from "@/entrypoints/hooks/useStorage.ts";
+import { browser } from 'wxt/browser';
 
 export function getRndInteger(min: number, max: number) {
     return Math.floor(Math.random() * (max - min + 1) ) + min;
@@ -122,6 +123,50 @@ export function sendNewGamesNotification(count: number) {
             iconUrl: browser.runtime.getURL('/icon/128.png'),
             title: '🆓 New Free Games Available!',
             message: `${count} free ${plural} found across your enabled platforms. Open LootNova to see them!`,
+        });
+    } catch (e) {
+        // notifications API may not be available in all contexts
+    }
+}
+
+// ── Session-expired notification ─────────────────────────────────────────────
+
+/** Login URLs per platform — opened when the user clicks the session-expired notification */
+const LOGIN_URLS: Record<string, string> = {
+    Epic:   'https://www.epicgames.com/id/login',
+    Amazon: 'https://www.amazon.com/ap/signin',
+    Steam:  'https://store.steampowered.com/login/',
+};
+
+/** Registered once so we don't stack duplicate listeners */
+let _sessionClickListenerRegistered = false;
+
+function ensureSessionClickListener() {
+    if (_sessionClickListenerRegistered) return;
+    _sessionClickListenerRegistered = true;
+    browser.notifications.onClicked.addListener((notifId: string) => {
+        const match = notifId.match(/^session-expired-([^-]+)-/);
+        if (!match) return;
+        const platform = match[1]; // e.g. "Epic", "Amazon", "Steam"
+        const url = LOGIN_URLS[platform];
+        if (url) browser.tabs.create({ url, active: true });
+    });
+}
+
+/**
+ * Fires a push notification telling the user their session expired
+ * and allows them to re-login with a single click.
+ *
+ * @param platform - Display name: "Epic", "Amazon" or "Steam"
+ */
+export function sendSessionExpiredNotification(platform: string) {
+    try {
+        ensureSessionClickListener();
+        browser.notifications.create(`session-expired-${platform}-${Date.now()}`, {
+            type: 'basic',
+            iconUrl: browser.runtime.getURL('/icon/128.png'),
+            title: `⚠️ LootNova — ${platform}`,
+            message: `Tu sesión en ${platform} ha expirado. Haz clic aquí para volver a iniciar sesión.`,
         });
     } catch (e) {
         // notifications API may not be available in all contexts

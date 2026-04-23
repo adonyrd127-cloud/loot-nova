@@ -7,7 +7,7 @@ import {ClaimFrequency, ClaimFrequencyMinutes} from "@/entrypoints/enums/claimFr
 import {parse} from 'node-html-parser';
 import {browser} from "wxt/browser";
 import {EpicElement, EpicKeyImage, EpicSearchResponse} from "@/entrypoints/types/epicGame.ts";
-import {sendClaimNotification, sendNewGamesNotification} from "@/entrypoints/utils/helpers.ts";
+import {sendClaimNotification, sendNewGamesNotification, sendSessionExpiredNotification} from "@/entrypoints/utils/helpers.ts";
 
 const EPIC_API_URL    = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
 const EPIC_GAMES_URL  = "https://store.epicgames.com/";
@@ -253,7 +253,12 @@ export default defineBackground({
       await this.clearGamesList();
       await this.getFreeGamesList();
     } else if (request.action === "claimFreeGames") {
-      if (request.data?.loggedIn === false) return;
+      if (request.data?.loggedIn === false) {
+        // Content script tells us the user is logged out — notify immediately
+        const platform: string = request.data?.platform ?? 'la plataforma';
+        sendSessionExpiredNotification(platform);
+        return;
+      }
       const games: FreeGame[] = request.data.freeGames;
       await this.claimGames(games);
     } else if (request.action === "openRedeemPage") {
@@ -326,7 +331,14 @@ export default defineBackground({
         } catch (_) {}
       }
 
-      if (steamLoggedIn !== null) await setStorageItem("steamLoggedIn", steamLoggedIn);
+      // ── Save & compare Steam login state ────────────────────────────────
+      if (steamLoggedIn !== null) {
+        const prevSteam = await getStorageItem("steamLoggedIn");
+        if (prevSteam === true && steamLoggedIn === false) {
+          sendSessionExpiredNotification('Steam');
+        }
+        await setStorageItem("steamLoggedIn", steamLoggedIn);
+      }
 
       // ── Epic Games ────────────────────────────────────────────────────────
       let epicLoggedIn: boolean | null = null;
@@ -375,7 +387,14 @@ export default defineBackground({
         } catch (_) {}
       }
 
-      if (epicLoggedIn !== null) await setStorageItem("epicLoggedIn", epicLoggedIn);
+      // ── Save & compare Epic login state ──────────────────────────────────
+      if (epicLoggedIn !== null) {
+        const prevEpic = await getStorageItem("epicLoggedIn");
+        if (prevEpic === true && epicLoggedIn === false) {
+          sendSessionExpiredNotification('Epic');
+        }
+        await setStorageItem("epicLoggedIn", epicLoggedIn);
+      }
 
 
       // ── Amazon Gaming ─────────────────────────────────────────────────────
@@ -412,7 +431,14 @@ export default defineBackground({
         }
       }
 
-      if (amazonLoggedIn !== null) await setStorageItem("amazonLoggedIn", amazonLoggedIn);
+      // ── Save & compare Amazon login state ────────────────────────────────
+      if (amazonLoggedIn !== null) {
+        const prevAmazon = await getStorageItem("amazonLoggedIn");
+        if (prevAmazon === true && amazonLoggedIn === false) {
+          sendSessionExpiredNotification('Amazon');
+        }
+        await setStorageItem("amazonLoggedIn", amazonLoggedIn);
+      }
 
       console.log("[LootNova] Login status refreshed:", { steamLoggedIn, epicLoggedIn, amazonLoggedIn });
     } catch (e) {
