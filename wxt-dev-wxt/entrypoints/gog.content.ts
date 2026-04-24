@@ -1,99 +1,99 @@
 /**
  * gog.content.ts — LootNova GOG Redemption Content Script
  *
- * Matches: https://www.gog.com/en/redeem*
+ * Matches: https://www.gog.com/redeem/*
  *
- * Flow:
- *  1. Amazon content script claims a GOG game and stores the key in
- *     local:pendingGogCode, then opens https://www.gog.com/en/redeem#{KEY}
- *  2. This script runs on that page, reads the key from:
- *       a. The URL hash  (#XXXX-XXXX-…)
- *       b. local:pendingGogCode storage fallback
- *  3. Waits for the input field, types the key, clicks Continue/Redeem
- *  4. Clears the stored key so it isn't reused
+ * Real GOG URL format (confirmed from screenshots):
+ *   https://www.gog.com/redeem/QQPUAE5BADC73947AC
+ *
+ * When that URL is opened, GOG PRE-FILLS the code in the input automatically.
+ * This script just has to:
+ *   1. Wait for the input to be populated
+ *   2. Click the green "Continue" button
+ *   3. Show a visual overlay so the user knows what's happening
+ *
+ * reCAPTCHA note: GOG uses reCAPTCHA. If it blocks the click, the tab stays
+ * open so the user can click Continue manually with the code already filled.
  */
 import { defineContentScript } from 'wxt/utils/define-content-script';
-import { browser } from 'wxt/browser';
-import { getStorageItem, setStorageItem } from '@/entrypoints/hooks/useStorage.ts';
-import { oncePerPageRun } from '@/entrypoints/utils/oncePerPageRun';
 
-// How long to poll for the input field before giving up
-const INPUT_WAIT_MS   = 20_000;
-const INPUT_POLL_MS   = 500;
+const CONTENT_WAIT_MS = 20_000;
+const POLL_MS         = 600;
 
 export default defineContentScript({
     matches: [
-        'https://www.gog.com/en/redeem*',
-        'https://www.gog.com/redeem*',          // redirect target
+        'https://www.gog.com/redeem/*',
+        'https://www.gog.com/en/redeem/*',
     ],
 
     async main() {
-        if (!oncePerPageRun('_lootNovaGogRedeemInjected')) return;
+        // Prevent double-run on SPA navigation
+        if ((window as any).__lootNovaGogRan) return;
+        (window as any).__lootNovaGogRan = true;
 
-        // ── 1. Get the key ──────────────────────────────────────────────────
-        const hashCode    = decodeURIComponent(location.hash.slice(1)).trim();
-        const storedCode  = ((await getStorageItem('pendingGogCode')) as string | null)?.trim() ?? '';
-        const code        = hashCode || storedCode;
+        // Extract code from URL path: /redeem/QQPUAE5BADC73947AC
+        const pathParts = location.pathname.split('/redeem/');
+        const codeFromUrl = decodeURIComponent(pathParts[1] ?? '').split('?')[0].trim();
 
-        if (!code) {
-            console.log('[LootNova/GOG] No pending code found. Standing by.');
+        if (!codeFromUrl) {
+            // Page was opened without a code in the path — nothing to do
+            console.log('[LootNova/GOG] No code in URL path, standing by.');
             return;
         }
 
-        console.log('[LootNova/GOG] Redeeming key:', code);
+        console.log('[LootNova/GOG] Auto-redeem for code:', codeFromUrl);
 
-        // ── 2. Show overlay ─────────────────────────────────────────────────
-        const overlay = createRedeemOverlay(code);
+        // Show overlay
+        const overlay = createOverlay(codeFromUrl);
 
         try {
-            // ── 3. Wait for the key input field ─────────────────────────────
-            const input = await waitForInput(INPUT_WAIT_MS, INPUT_POLL_MS);
+            // ── Step 1: Wait for input to be populated ──────────────────────
+            // GOG fills the input from the URL automatically.
+            // We wait for it to appear and have a value.
+            const input = await waitForFilledInput(codeFromUrl, CONTENT_WAIT_MS, POLL_MS);
+
             if (!input) {
-                console.warn('[LootNova/GOG] Input field not found after', INPUT_WAIT_MS, 'ms');
-                updateOverlay(overlay, '⚠️ Input field not found. Please enter the key manually.', true);
+                console.warn('[LootNova/GOG] Input not populated after', CONTENT_WAIT_MS, 'ms');
+                updateOverlay(overlay,
+                    `⚠️ No se encontró el campo. Clave: ${codeFromUrl}`, true);
+                // Keep the tab open so the user can act
                 return;
             }
 
-            // Small human-like delay
-            await wait(400 + Math.random() * 400);
+            await wait(600);
 
-            // ── 4. Fill in the code ─────────────────────────────────────────
-            // GOG uses React/Vue — we dispatch native input events so the
-            // framework registers the value change.
-            input.focus();
-            input.value = code;
-            input.dispatchEvent(new Event('input',  { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-
-            await wait(500);
-
-            // ── 5. Click the Continue / Redeem button ────────────────────────
-            const btn = await waitForSubmitButton(3_000, INPUT_POLL_MS);
+            // ── Step 2: Click Continue ──────────────────────────────────────
+            const btn = await waitForContinueButton(5_000, POLL_MS);
             if (!btn) {
-                console.warn('[LootNova/GOG] Submit button not found, pressing Enter instead.');
-                input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', bubbles: true }));
-                input.dispatchEvent(new KeyboardEvent('keydown',  { key: 'Enter', bubbles: true }));
-            } else {
-                await wait(300);
-                btn.click();
+                console.warn('[LootNova/GOG] Continue button not found.');
+                updateOverlay(overlay,
+                    `⚠️ Botón no encontrado. Haz click en Continue. Clave: ${codeFromUrl}`, true);
+                return;
             }
 
-            updateOverlay(overlay, '✅ Key submitted! Waiting for GOG confirmation…');
+            updateOverlay(overlay, '🖱️ Haciendo click en Continue…');
+            await wait(400);
+            btn.click();
 
-            // ── 6. Wait for success/error and report ────────────────────────
-            const success = await waitForRedeemResult(10_000);
+            // ── Step 3: Wait for result ─────────────────────────────────────
+            updateOverlay(overlay, '⏳ Esperando confirmación de GOG…');
+            const success = await waitForSuccess(12_000);
+
             if (success) {
-                updateOverlay(overlay, '🎮 Game redeemed on GOG!', false, true);
-                console.log('[LootNova/GOG] Key redeemed successfully!');
+                updateOverlay(overlay, '✅ ¡Juego añadido a tu biblioteca de GOG!', false, true);
+                console.log('[LootNova/GOG] Redemption confirmed!');
+                // Close the tab after 4s
+                setTimeout(() => window.close(), 4_000);
             } else {
-                updateOverlay(overlay, '⚠️ Could not confirm redemption. Check GOG manually.', true);
+                // Could be reCAPTCHA or an already-used code — keep tab open
+                updateOverlay(overlay,
+                    `ℹ️ Verifica el resultado. Si hay CAPTCHA, complétalo tú. Clave: ${codeFromUrl}`, true);
+                console.log('[LootNova/GOG] Could not confirm success automatically.');
             }
 
-        } finally {
-            // ── 7. Clear the stored key so it isn't reused ──────────────────
-            await setStorageItem('pendingGogCode', null);
-            // Remove overlay after 5s
-            setTimeout(() => overlay?.remove(), 5_000);
+        } catch (err) {
+            console.error('[LootNova/GOG] Unexpected error:', err);
+            updateOverlay(overlay, `⚠️ Error inesperado. Clave: ${codeFromUrl}`, true);
         }
     },
 });
@@ -101,26 +101,36 @@ export default defineContentScript({
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
 /**
- * Polls for the GOG key-redemption input field.
- * GOG uses different selectors depending on locale / page version.
+ * Waits for the code input to appear on the page AND be populated with the
+ * expected code value (GOG fills it from the URL path automatically).
  */
-async function waitForInput(timeoutMs: number, intervalMs: number): Promise<HTMLInputElement | null> {
+async function waitForFilledInput(
+    expectedCode: string,
+    timeoutMs: number,
+    intervalMs: number
+): Promise<HTMLInputElement | null> {
     const selectors = [
-        'input#codeInput',
         'input[name="code"]',
-        'input[placeholder*="key" i]',
+        'input#codeInput',
+        'input[class*="redeem" i]',
         'input[placeholder*="code" i]',
-        'input[placeholder*="redeem" i]',
-        'input[placeholder*="clave" i]',   // ES
-        'input[placeholder*="código" i]',  // ES
-        'input[type="text"][maxlength]',    // generic fallback
+        'input[placeholder*="key" i]',
+        'input[type="text"][maxlength]',
+        'input[type="text"]',
     ];
 
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         for (const sel of selectors) {
             const el = document.querySelector<HTMLInputElement>(sel);
-            if (el && el.offsetParent !== null) return el; // visible
+            if (el && el.offsetParent !== null) {
+                // Accept if it already has the expected value OR any non-empty value
+                if (el.value && el.value.toUpperCase().includes(expectedCode.toUpperCase().slice(0, 6))) {
+                    return el;
+                }
+                // Also accept if GOG filled it differently (some normalisation)
+                if (el.value.trim().length > 5) return el;
+            }
         }
         await wait(intervalMs);
     }
@@ -128,17 +138,15 @@ async function waitForInput(timeoutMs: number, intervalMs: number): Promise<HTML
 }
 
 /**
- * Polls for the Continue / Redeem submit button after filling the input.
+ * Waits for the "Continue" / "Redeem" submit button.
  */
-async function waitForSubmitButton(timeoutMs: number, intervalMs: number): Promise<HTMLButtonElement | null> {
+async function waitForContinueButton(timeoutMs: number, intervalMs: number): Promise<HTMLButtonElement | null> {
     const selectors = [
-        'button[type="submit"]',
-        'button[data-testid*="submit" i]',
-        'button[data-testid*="redeem" i]',
-        'button[data-testid*="continue" i]',
+        'button[type="submit"]:not([disabled])',
         'button[class*="submit" i]:not([disabled])',
         'button[class*="redeem" i]:not([disabled])',
         'button[class*="continue" i]:not([disabled])',
+        'button[class*="btn" i]:not([disabled])',
         'form button:not([disabled])',
     ];
 
@@ -154,22 +162,21 @@ async function waitForSubmitButton(timeoutMs: number, intervalMs: number): Promi
 }
 
 /**
- * Watches the DOM for a success message or error after clicking submit.
+ * Waits for a success message or page change indicating the code was redeemed.
  */
-async function waitForRedeemResult(timeoutMs: number): Promise<boolean> {
-    const successPatterns = [
-        /succe|success|added|biblioteca|library|añadido|redeemed/i,
-    ];
+async function waitForSuccess(timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
+    const originalPath = location.pathname;
+
     while (Date.now() < deadline) {
-        const bodyText = document.body?.textContent ?? '';
-        if (successPatterns.some(p => p.test(bodyText))) return true;
-        // Also check for a dedicated success element
-        const successEl = document.querySelector(
-            '[class*="success" i], [data-testid*="success" i], [class*="confirmed" i]'
-        );
-        if (successEl) return true;
-        await wait(600);
+        const body = document.body?.textContent ?? '';
+        // Success indicators (EN + ES + GOG-specific)
+        if (/added to|library|biblioteca|redeemed|canjeado|thank|gracias|success/i.test(body)) return true;
+        // URL change can indicate success (GOG may navigate after redeem)
+        if (location.pathname !== originalPath) return true;
+        // Success element
+        if (document.querySelector('[class*="success" i], [class*="confirmed" i], [class*="thank" i]')) return true;
+        await wait(500);
     }
     return false;
 }
@@ -180,52 +187,61 @@ function wait(ms: number): Promise<void> {
 
 // ── Shadow DOM overlay ────────────────────────────────────────────────────────
 
-function createRedeemOverlay(code: string): HTMLElement {
+function createOverlay(code: string): HTMLElement {
     const host = document.createElement('div');
     host.id = 'loot-nova-gog-overlay';
-    host.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483647;pointer-events:none;';
+    host.style.cssText = [
+        'position:fixed;bottom:24px;right:24px;',
+        'z-index:2147483647;pointer-events:none;',
+        'font-family:system-ui,sans-serif;',
+    ].join('');
     document.body.appendChild(host);
 
-    const shadow = host.attachShadow({ mode: 'closed' });
+    const shadow = host.attachShadow({ mode: 'open' }); // open so we can update it
 
     const style = document.createElement('style');
     style.textContent = [
-        '@keyframes ln-fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}',
-        '@keyframes ln-pulse{0%,100%{opacity:1}50%{opacity:.6}}',
+        '@keyframes ln-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}',
+        '@keyframes ln-pulse{0%,100%{opacity:1}50%{opacity:.55}}',
     ].join('');
     shadow.appendChild(style);
 
     const badge = document.createElement('div');
-    badge.id = 'ln-gog-badge';
+    badge.id = 'badge';
     badge.style.cssText = [
-        'display:flex;align-items:center;gap:10px;',
-        'background:linear-gradient(135deg,#6b3fa0,#9460d4);',   // GOG purple
-        'color:#fff;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;',
-        'padding:10px 16px;border-radius:12px;max-width:340px;',
-        'box-shadow:0 4px 20px rgba(148,96,212,.5);',
-        'animation:ln-fadein .3s ease;',
+        'display:flex;align-items:flex-start;gap:10px;',
+        'background:linear-gradient(135deg,#4b206b,#7c3aed);',
+        'color:#fff;font-size:13px;font-weight:500;',
+        'padding:12px 16px;border-radius:12px;max-width:320px;',
+        'box-shadow:0 4px 24px rgba(124,58,237,.55);',
+        'animation:ln-in .3s ease;',
     ].join('');
 
     const icon = document.createElement('span');
     icon.textContent = '🎮';
-    icon.style.cssText = 'font-size:16px;animation:ln-pulse 1.5s ease-in-out infinite;';
+    icon.style.cssText = 'font-size:18px;margin-top:1px;flex-shrink:0;animation:ln-pulse 1.5s ease-in-out infinite;';
 
-    const text = document.createElement('div');
-    text.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+    const textWrap = document.createElement('div');
+    textWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;min-width:0;';
 
     const title = document.createElement('span');
-    title.style.fontWeight = '600';
+    title.style.cssText = 'font-weight:700;font-size:13px;';
     title.textContent = 'LootNova — Canjeando en GOG';
 
-    const subtitle = document.createElement('span');
-    subtitle.id = 'ln-gog-status';
-    subtitle.style.cssText = 'font-size:11px;opacity:.8;font-family:monospace;letter-spacing:.05em;';
-    subtitle.textContent = `🔑 ${code}`;
+    const codeEl = document.createElement('span');
+    codeEl.style.cssText = 'font-family:monospace;font-size:11px;opacity:.8;letter-spacing:.06em;word-break:break-all;';
+    codeEl.textContent = `🔑 ${code}`;
 
-    text.appendChild(title);
-    text.appendChild(subtitle);
+    const statusEl = document.createElement('span');
+    statusEl.id = 'status';
+    statusEl.style.cssText = 'font-size:12px;opacity:.9;margin-top:2px;';
+    statusEl.textContent = '⏳ Esperando campo de entrada…';
+
+    textWrap.appendChild(title);
+    textWrap.appendChild(codeEl);
+    textWrap.appendChild(statusEl);
     badge.appendChild(icon);
-    badge.appendChild(text);
+    badge.appendChild(textWrap);
     shadow.appendChild(badge);
 
     return host;
@@ -234,14 +250,13 @@ function createRedeemOverlay(code: string): HTMLElement {
 function updateOverlay(host: HTMLElement, message: string, isError = false, isSuccess = false): void {
     try {
         const shadow = host.shadowRoot;
-        // shadowRoot is closed — update via the stored reference instead
-        const status = host.querySelector?.('#ln-gog-status');
-        // We need to find the element inside the shadow. Since it's closed, we
-        // stored a reference in the DOM attribute approach:
-        const badge = host.firstChild as ShadowRoot | null;
-        // Access via the host's shadow via a workaround:
-        // We expose a lightweight updater by querying all text nodes.
-        // In practice the overlay auto-removes after 5s, so a simple console log suffices.
-        console.log(`[LootNova/GOG] ${isError ? '⚠️' : isSuccess ? '✅' : 'ℹ️'} ${message}`);
+        if (!shadow) return;
+        const statusEl = shadow.getElementById('status');
+        const badge    = shadow.getElementById('badge');
+        if (statusEl) statusEl.textContent = message;
+        if (badge) {
+            if (isError)   badge.style.background = 'linear-gradient(135deg,#7f1d1d,#ef4444)';
+            if (isSuccess) badge.style.background = 'linear-gradient(135deg,#064e3b,#10b981)';
+        }
     } catch { /* silent */ }
 }
