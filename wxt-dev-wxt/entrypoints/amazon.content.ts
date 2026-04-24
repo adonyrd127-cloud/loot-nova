@@ -385,17 +385,35 @@ export default defineContentScript({
             const overlay = createClaimOverlay(pageTitle);
 
             try {
-                // --- Step 1: check if already obtained (button disabled) ---
+                // --- Step 1: check if already obtained ---
+                // IMPORTANT: Even if already obtained, the page may show an unredeemed
+                // external key (GOG/Steam/Xbox). We MUST check that before skipping.
                 const earlyCheck = document.querySelector<HTMLButtonElement>('button[data-a-target="buy-box_button"]');
-                if (earlyCheck && earlyCheck.disabled) {
-                    console.log('[LootNova/Amazon] Already obtained:', document.title);
-                    return;
-                }
+                const bodyText   = document.body?.textContent ?? '';
 
-                // Also check for text indicators (multilingual)
-                const bodyText = document.body?.textContent ?? '';
-                if (/lo obtuviste el|ya lo tienes|you obtained it|already in library/i.test(bodyText)) {
-                    console.log('[LootNova/Amazon] Already in library, skipping.');
+                const alreadyObtained =
+                    (earlyCheck && earlyCheck.disabled) ||
+                    /lo obtuviste el|ya lo tienes|you obtained it|already in library/i.test(bodyText);
+
+                if (alreadyObtained) {
+                    console.log('[LootNova/Amazon] Already obtained:', document.title, '— checking for unredeemed key…');
+                    // Snapshot check: the code is already rendered on the page, no need to poll
+                    const redeemInfo = extractRedeemCode();
+                    if (redeemInfo) {
+                        console.log('[LootNova/Amazon] Unredeemed key found:',
+                            redeemInfo.platform, redeemInfo.code);
+                        if (redeemInfo.platform === 'GOG') {
+                            await setStorageItem('pendingGogCode', redeemInfo.code);
+                        }
+                        await browser.runtime.sendMessage({
+                            target: 'background',
+                            action: 'openRedeemPage',
+                            data: redeemInfo,
+                        });
+                        await wait(2000);
+                    } else {
+                        console.log('[LootNova/Amazon] No unredeemed key on page, skipping.');
+                    }
                     return;
                 }
 
