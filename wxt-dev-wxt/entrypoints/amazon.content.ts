@@ -423,16 +423,23 @@ export default defineContentScript({
                     }
                 }
 
-                // --- Step 5: detect GOG (or other) redemption codes and open redeem page ---
-                const redeemInfo = extractRedeemCode();
+                // --- Step 5: poll for GOG (or other) redemption code ---
+                // After clicking claim, Amazon takes several seconds to render the key.
+                // We poll for up to 15s so we don't miss it.
+                const redeemInfo = await pollForRedeemCode(15_000);
                 if (redeemInfo) {
-                    console.log('[LootNova/Amazon] GOG/external code detected:', redeemInfo.code);
+                    console.log('[LootNova/Amazon] External key detected:', redeemInfo.platform, redeemInfo.code);
+                    // Store the code so the GOG content script can pick it up
+                    if (redeemInfo.platform === 'GOG') {
+                        await setStorageItem('pendingGogCode', redeemInfo.code);
+                    }
                     await browser.runtime.sendMessage({
                         target: 'background',
                         action: 'openRedeemPage',
                         data: redeemInfo,
                     });
-                    await wait(1500);
+                    // Give the new tab time to start loading before we continue
+                    await wait(2000);
                 }
 
                 await incrementCounter();
@@ -536,47 +543,106 @@ export default defineContentScript({
         }
 
         /**
-         * After claiming an Amazon game, detects if there is an external redemption code
-         * (e.g., GOG, Xbox, etc.) and returns the code + redeem URL.
+         * Polls the DOM after a claim button click, waiting for an external key
+         * (GOG, Xbox, Steam) to appear on the page. Amazon takes several seconds
+         * to render the key modal after the claim is processed.
+         *
+         * @param timeoutMs - Maximum time to wait (default 15 000 ms)
+         */
+        async function pollForRedeemCode(
+            timeoutMs = 15_000
+        ): Promise<{ code: string; redeemUrl: string; platform: string } | null> {
+            const deadline = Date.now() + timeoutMs;
+            const pollInterval = 800;
+
+            while (Date.now() < deadline) {
+                const result = extractRedeemCode();
+                if (result) return result;
+                await wait(pollInterval);
+            }
+            console.log('[LootNova/Amazon] No external key found after', timeoutMs, 'ms.');
+            return null;
+        }
+
+        /**
+         * Single snapshot check of the DOM for external redemption codes.
+         * Called repeatedly by pollForRedeemCode().
          */
         function extractRedeemCode(): { code: string; redeemUrl: string; platform: string } | null {
             const bodyText = document.body?.textContent ?? '';
             const bodyHtml = document.body?.innerHTML ?? '';
 
-            const redeemAnchor = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).find(a => {
-                const text = a.textContent?.toLowerCase() ?? '';
-                const href = a.href ?? '';
-                return (
-                    text.includes('canj') || text.includes('redeem') || text.includes('code') ||
-                    href.includes('gog.com/redeem') || href.includes('gog.com/r/') ||
-                    href.includes('xbox.com/redeemtoken') || href.includes('store.steampowered.com/account/registerkey')
-                );
-            });
+            // ── Determine platform first (more reliable than code detection) ──
+            const isGOG   = bodyHtml.includes('gog.com') ||
+                            bodyHtml.includes('GOG') ||
+                            !!document.querySelector('img[src*="gog"], [class*="gog" i], [data-a-target*="gog" i]');
+            const isXbox  = bodyHtml.includes('xbox.com');
+            const isSteam = bodyHtml.includes('steampowered.com');
 
-            const codeEl = document.querySelector('[class*="code"], [data-a-target*="code"], [class*="Code"]');
-            const rawCode = codeEl?.textContent?.trim() ?? '';
-            const codeMatch = bodyText.match(/\b([A-Z0-9]{4,5}(?:[-][A-Z0-9]{4,5}){2,4})\b/) ||
-                              bodyText.match(/\b([A-Z0-9]{10,30})\b/);
-            const code = rawCode || codeMatch?.[1] || '';
+            if (!isGOG && !isXbox && !isSteam) return null; // not an external key page
+
+            // ── Extract the key code ──
+            // Priority 1: explicit code elements Amazon uses
+            const codeSelectors = [
+                '[data-a-target="key-code"]',
+                '[data-a-target*="code"]',
+                '[class*="KeyCode" i]',
+                '[class*="key-code" i]',
+                '[class*="redemptionCode" i]',
+                '[class*="game-code" i]',
+                '[class*="code-value" i]',
+                '[class*="ClaimCode" i]',
+                'code',
+            ];
+            let code = '';
+            for (const sel of codeSelectors) {
+                const el = document.querySelector(sel);
+                const txt = el?.textContent?.trim() ?? '';
+                if (txt && /[A-Z0-9]{3}/.test(txt)) { code = txt; break; }
+            }
+
+            // Priority 2: regex on body text — GOG keys are typically XXXX-XXXX-XXXX-XXXX or similar
+            if (!code) {
+                const keyPatterns = [
+                    // GOG / Epic style: groups of 4-5 chars separated by dashes
+                    /\b([A-Z0-9]{4,5}(?:-[A-Z0-9]{4,5}){3,5})\b/,
+                    // Longer keys without dashes (Steam, Xbox)
+                    /\b([A-Z0-9]{15,30})\b/,
+                ];
+                for (const pattern of keyPatterns) {
+                    const m = bodyText.match(pattern);
+                    if (m) { code = m[1]; break; }
+                }
+            }
 
             if (!code) return null;
 
-            let redeemUrl = redeemAnchor?.href ?? '';
-            let platform = 'External';
-
-            if (redeemUrl.includes('gog.com') || bodyHtml.includes('gog.com')) {
-                redeemUrl = `https://www.gog.com/redeem/${encodeURIComponent(code)}`;
-                platform = 'GOG';
-            } else if (redeemUrl.includes('xbox.com') || bodyHtml.includes('xbox.com')) {
-                platform = 'Xbox';
-            } else if (redeemUrl.includes('steampowered.com')) {
-                redeemUrl = `https://store.steampowered.com/account/registerkey?key=${encodeURIComponent(code)}`;
-                platform = 'Steam';
-            } else if (!redeemUrl) {
-                return null;
+            // ── Build redeem URL ──
+            if (isGOG) {
+                // GOG redeem page: https://www.gog.com/en/redeem
+                // The GOG content script will auto-fill the input.
+                // We pass the code via URL hash for easy extraction.
+                return {
+                    code,
+                    redeemUrl: `https://www.gog.com/en/redeem#${encodeURIComponent(code)}`,
+                    platform: 'GOG',
+                };
             }
-
-            return { code, redeemUrl, platform };
+            if (isXbox) {
+                return {
+                    code,
+                    redeemUrl: `https://www.xbox.com/redeemtoken?token=${encodeURIComponent(code)}`,
+                    platform: 'Xbox',
+                };
+            }
+            if (isSteam) {
+                return {
+                    code,
+                    redeemUrl: `https://store.steampowered.com/account/registerkey?key=${encodeURIComponent(code)}`,
+                    platform: 'Steam',
+                };
+            }
+            return null;
         }
 
         /** Extracts title from a game card anchor using multiple fallbacks */

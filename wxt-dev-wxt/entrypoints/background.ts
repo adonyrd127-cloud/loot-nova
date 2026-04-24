@@ -363,11 +363,24 @@ export default defineBackground({
     } else if (request.action === "openRedeemPage") {
       // Opened when Amazon gives an external key (GOG, Xbox, Steam, etc.)
       const { redeemUrl, platform, code } = request.data ?? {};
-      if (redeemUrl) {
-        console.log(`[LootNova] Opening ${platform} redeem page for code: ${code}`);
-        // Open in an active tab so the user can see it and complete any CAPTCHA
+      if (!redeemUrl) return;
+
+      console.log(`[LootNova] Opening ${platform} redeem page for code: ${code}`);
+
+      if (platform === 'GOG') {
+        // GOG: open in background — our gog.content.ts will auto-fill and submit
+        const gogTab = await browser.tabs.create({ url: redeemUrl, active: false });
+        if (gogTab?.id) {
+          await this.waitForTabToLoad(gogTab.id);
+          // Wait up to 45s for the GOG content script to complete redemption
+          await this.wait(45_000);
+          try { await browser.tabs.remove(gogTab.id); } catch (_) {}
+        }
+      } else {
+        // Xbox, Steam, etc: open in foreground — user may need to handle CAPTCHA
         await browser.tabs.create({ url: redeemUrl, active: true });
       }
+
     } else if (request.action === "steamAddToCart") {
       const appId  = Number(request.data?.appId ?? request.data?.appid);
       const tabId  = sender?.tab?.id;
