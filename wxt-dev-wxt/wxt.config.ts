@@ -32,6 +32,8 @@ export default defineConfig({
       'https://api.opencritic.com/*',
       // ProtonDB — Steam Deck compatibility badges
       'https://www.protondb.com/*',
+      // IsThereAnyDeal — retail price lookup for Savings Dashboard
+      'https://api.isthereanydeal.com/*',
     ],
     browser_specific_settings: {
       gecko: {

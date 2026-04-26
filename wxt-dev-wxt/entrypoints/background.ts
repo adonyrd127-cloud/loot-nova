@@ -8,6 +8,7 @@ import {parse} from 'node-html-parser';
 import {browser} from "wxt/browser";
 import {EpicElement, EpicKeyImage, EpicSearchResponse} from "@/entrypoints/types/epicGame.ts";
 import {sendClaimNotification, sendNewGamesNotification, sendSessionExpiredNotification} from "@/entrypoints/utils/helpers.ts";
+import {fetchRetailPrice} from "@/entrypoints/utils/priceService.ts";
 
 const EPIC_API_URL    = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
 const EPIC_GAMES_URL  = "https://store.epicgames.com/";
@@ -295,16 +296,22 @@ export default defineBackground({
       // Avoid duplicates
       const alreadySaved = history.some(h => h.title === game.title && h.platform === game.platform);
       if (alreadySaved) return;
+
+      // Fetch retail price silently — never blocks saving if it fails
+      const retailPrice = await fetchRetailPrice(game.title).catch(() => null) ?? undefined;
+
       const entry: ClaimedGame = {
         title:     game.title,
         platform:  game.platform as unknown as Platforms,
         link:      game.link,
         img:       game.img,
         claimedAt: new Date().toISOString(),
+        ...(retailPrice != null && { retailPrice }),
       };
       // Keep last 100 entries, newest first
       const updated = [entry, ...history].slice(0, 100);
       await setStorageItem("claimedHistory", updated);
+      console.log(`[LootNova] Saved "${game.title}" to history (price: $${retailPrice ?? 'N/A'})`);
     } catch (e) {
       console.error("addToHistory failed:", e);
     }

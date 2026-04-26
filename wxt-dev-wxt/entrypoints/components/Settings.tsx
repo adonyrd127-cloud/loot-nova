@@ -8,13 +8,11 @@ import { ClaimFrequency, ClaimFrequencyMinutes } from "@/entrypoints/enums/claim
 import { MessageRequest } from "@/entrypoints/types/messageRequest.ts";
 import LoginStatus from "@/entrypoints/components/LoginStatus.tsx";
 import { getStorageItem } from "@/entrypoints/hooks/useStorage.ts";
+import { ClaimedGame } from "@/entrypoints/types/claimedGame.ts";
+import { computeTotalSavings, formatUSD } from "@/entrypoints/utils/priceService.ts";
 
 // ── Next-autoclaim countdown ──────────────────────────────────────────────────
 
-/**
- * Formats a millisecond duration as HH:MM:SS.
- * Used for the monospaced next-autoclaim timer.
- */
 function formatDuration(ms: number): string {
     if (ms <= 0) return "00:00:00";
     const totalSec = Math.floor(ms / 1000);
@@ -28,34 +26,19 @@ function NextClaimCountdown({ frequency }: { frequency: ClaimFrequency }) {
     const [remaining, setRemaining] = useState<number | null>(null);
 
     const computeRemaining = useCallback(async () => {
-        if (frequency === ClaimFrequency.BROWSER_START) {
-            setRemaining(null);
-            return;
-        }
+        if (frequency === ClaimFrequency.BROWSER_START) { setRemaining(null); return; }
         const lastOpened = await getStorageItem("lastOpened") as string | null;
-        if (!lastOpened) {
-            setRemaining(null);
-            return;
-        }
+        if (!lastOpened) { setRemaining(null); return; }
         const periodMs = (ClaimFrequencyMinutes[frequency] ?? 1440) * 60_000;
         const elapsed  = Date.now() - new Date(lastOpened).getTime();
-        const left     = Math.max(0, periodMs - elapsed);
-        setRemaining(left);
+        setRemaining(Math.max(0, periodMs - elapsed));
     }, [frequency]);
 
-    // Initial load + refresh on frequency change
-    useEffect(() => {
-        void computeRemaining();
-    }, [computeRemaining]);
+    useEffect(() => { void computeRemaining(); }, [computeRemaining]);
 
-    // Tick every second
     useEffect(() => {
         const id = setInterval(() => {
-            setRemaining(prev => {
-                if (prev === null) return null;
-                const next = prev - 1000;
-                return next > 0 ? next : 0;
-            });
+            setRemaining(prev => prev === null ? null : Math.max(0, prev - 1000));
         }, 1000);
         return () => clearInterval(id);
     }, []);
@@ -64,25 +47,36 @@ function NextClaimCountdown({ frequency }: { frequency: ClaimFrequency }) {
 
     return (
         <div className="next-claim-row">
-            <span className="next-claim-label">
-                {browser.i18n.getMessage("next_autoclaim_label")}
-            </span>
+            <span className="next-claim-label">{browser.i18n.getMessage("next_autoclaim_label")}</span>
             <span className="next-claim-timer">{formatDuration(remaining)}</span>
         </div>
     );
 }
 
-// ── Hero Stats ────────────────────────────────────────────────────────────────
+// ── Hero Stats ─────────────────────────────────────────────────────────────────
 
-function HeroStats({ counter }: { counter: number }) {
+function HeroStats({ counter, history }: { counter: number; history: ClaimedGame[] }) {
+    const totalSavings = computeTotalSavings(history);
+    const hasSavings   = totalSavings > 0;
+
     return (
         <div className="hero-stats">
+            {/* Games claimed */}
             <div className="hero-stat-item">
                 <span className="hero-stat-number">{counter}</span>
-                <span className="hero-stat-label">
-                    {browser.i18n.getMessage("gamesClaimed")}
-                </span>
+                <span className="hero-stat-label">{browser.i18n.getMessage("gamesClaimed")}</span>
             </div>
+
+            {/* Divider — only shown when we have savings data */}
+            {hasSavings && <div className="hero-stat-divider" />}
+
+            {/* Total savings */}
+            {hasSavings && (
+                <div className="hero-stat-item">
+                    <span className="hero-stat-number hero-stat-savings">{formatUSD(totalSavings)}</span>
+                    <span className="hero-stat-label">{browser.i18n.getMessage("stat_total_saved")}</span>
+                </div>
+            )}
         </div>
     );
 }
@@ -91,6 +85,7 @@ function HeroStats({ counter }: { counter: number }) {
 
 function Settings() {
     const [counter]        = useStorage<number>("counter", 0);
+    const [history]        = useStorage<ClaimedGame[]>("claimedHistory", []);
     const [steamCheck,  setSteamCheck]  = useStorage<boolean>("steamCheck",  true);
     const [epicCheck,   setEpicCheck]   = useStorage<boolean>("epicCheck",   true);
     const [amazonCheck, setAmazonCheck] = useStorage<boolean>("amazonCheck", true);
@@ -111,7 +106,7 @@ function Settings() {
             <div className="nova-hero">
                 <h1>LootNova</h1>
                 <p className="tagline">{browser.i18n.getMessage("tagline")}</p>
-                <HeroStats counter={counter} />
+                <HeroStats counter={counter} history={history ?? []} />
                 <NextClaimCountdown frequency={claimFrequency} />
             </div>
 
@@ -129,8 +124,8 @@ function Settings() {
                 <FrequencySelect value={claimFrequency} onChange={handleFrequencyChange} />
 
                 <div className="checkboxes">
-                    <Checkbox name={browser.i18n.getMessage("steamPlatform")} checked={steamCheck} onChange={e => setSteamCheck(e.target.checked)}/>
-                    <Checkbox name={browser.i18n.getMessage("epicPlatform")} checked={epicCheck} onChange={e => setEpicCheck(e.target.checked)}/>
+                    <Checkbox name={browser.i18n.getMessage("steamPlatform")}  checked={steamCheck}  onChange={e => setSteamCheck(e.target.checked)}/>
+                    <Checkbox name={browser.i18n.getMessage("epicPlatform")}   checked={epicCheck}   onChange={e => setEpicCheck(e.target.checked)}/>
                     <Checkbox name={browser.i18n.getMessage("amazonPlatform")} checked={amazonCheck} onChange={e => setAmazonCheck(e.target.checked)}/>
                 </div>
             </div>

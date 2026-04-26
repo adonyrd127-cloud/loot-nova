@@ -717,3 +717,99 @@ a:hover {
   text-align: right;
 }
 
+/* ── Savings Dashboard ── */
+
+/* Vertical divider between stat items in the hero */
+.hero-stat-divider {
+  width: 1px;
+  height: 2.4rem;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 1px;
+  align-self: center;
+}
+
+/* Savings amount gets a special green gradient */
+.hero-stat-savings {
+  background: linear-gradient(135deg, #34d399, #10b981, #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 1.6rem;       /* slightly smaller to fit alongside game count */
+}
+
+/* Savings banner in the History tab */
+.savings-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.12) 0%,
+    rgba(6, 182, 212, 0.08)  100%
+  );
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.savings-banner-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.savings-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.5));
+}
+
+.savings-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.savings-amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  background: linear-gradient(135deg, #34d399, #10b981);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-label {
+  font-size: 0.72rem;
+  color: rgba(52, 211, 153, 0.75);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.savings-note {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  padding-left: 2px;
+}
+
+/* Price badge on individual history cards */
+.savings-price-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #34d399;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}

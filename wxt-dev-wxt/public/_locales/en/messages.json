@@ -49,5 +49,7 @@
     "message": "$COUNT$ Games Claimed",
     "placeholders": { "count": { "content": "$1", "example": "42" } }
   },
+  "stat_total_saved": { "message": "Total Saved" },
+  "savings_no_price": { "message": "games without price data" },
   "next_autoclaim_label": { "message": "Next auto-claim in" }
 }

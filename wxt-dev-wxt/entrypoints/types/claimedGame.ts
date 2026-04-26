@@ -5,5 +5,6 @@ export type ClaimedGame = {
     platform: Platforms;
     link: string;
     img: string;
-    claimedAt: string; // ISO date string
+    claimedAt: string;      // ISO date string
+    retailPrice?: number;   // USD price at time of claiming (from IsThereAnyDeal)
 };

@@ -49,5 +49,7 @@
     "message": "$COUNT$ Juegos Reclamados",
     "placeholders": { "count": { "content": "$1", "example": "42" } }
   },
+  "stat_total_saved": { "message": "Total Ahorrado" },
+  "savings_no_price": { "message": "juegos sin datos de precio" },
   "next_autoclaim_label": { "message": "Próximo auto-claim en" }
 }
