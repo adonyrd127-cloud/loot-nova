@@ -100,7 +100,7 @@ export default defineBackground({
 
   async getFreeGamesAndSetOpenedFlag(opened: string) {
     await setStorageItem("lastOpened", opened);
-    this.getFreeGamesList();
+    await this.getFreeGamesList();
   },
 
   didEnoughTimePass(lastOpened: string, requiredMinutes: number): boolean {
@@ -239,8 +239,8 @@ export default defineBackground({
     }
 
     // Amazon has no public API — always use content script.
-    // Note: we don't await the result here because the content script will
-    // respond back via 'claimFreeGames' message once it scrapes the page.
+    // We wait for the content script to finish scraping and send back a
+    // 'claimFreeGames' message, with a safety timeout of 45s.
     try {
       if (amazonCheck) {
         // Always clear stale data before fetching fresh games
@@ -249,10 +249,9 @@ export default defineBackground({
         if (tab?.id) {
           await this.waitForTabToLoad(tab.id);
           await browser.tabs.sendMessage(tab.id, { target: 'content', action: 'getFreeGames' });
-          // Close the home tab after 35s — enough time for scraping + claims to start
-          setTimeout(async () => {
-            try { await browser.tabs.remove(tab.id!); } catch (_) {}
-          }, 35_000);
+          // Wait for content script to respond OR safety timeout
+          await this.waitForContentResponse('claimFreeGames', 45_000);
+          try { await browser.tabs.remove(tab.id); } catch (_) {}
         }
       }
     } catch (e) {
@@ -264,18 +263,17 @@ export default defineBackground({
     void this.setBadgeText(games.length.toString());
     for (const game of games) {
       try {
-        // Amazon SPA needs more time: 5s hydrate + 2s click + 2s confirm = ~15s total.
-        // Steam/Epic pages are lighter and 10s is fine.
-        const isAmazon = game.platform === 'Amazon Gaming';
-        const postWait = isAmazon ? 18_000 : 10_000;
-
         const tab = await browser.tabs.create({ url: game.link, active: false });
         if (!tab?.id) continue;
         await this.waitForTabToLoad(tab.id);
         await browser.tabs.sendMessage(tab.id, { target: 'content', action: 'claimGames' });
 
-        // Wait for the claim to complete before closing the tab
-        await this.wait(postWait);
+        // Wait for the content script to confirm the claim is done,
+        // with a generous safety timeout. Amazon SPA needs more time.
+        const isAmazon  = game.platform === 'Amazon Gaming';
+        const timeoutMs = isAmazon ? 30_000 : 15_000;
+
+        await this.waitForContentResponse('claimComplete', timeoutMs);
 
         // Close the tab so the user isn't flooded with open tabs
         try { await browser.tabs.remove(tab.id); } catch (_) {}
@@ -710,5 +708,37 @@ export default defineBackground({
 
   async setBadgeText(text: string) {
     await browser.action.setBadgeText({ text });
-  }
+  },
+
+  /**
+   * Waits for a content script to send a message with the given action name.
+   * Resolves when the message arrives, or after `timeoutMs` (whichever comes first).
+   * This replaces blind `wait(N)` timers — the content script actively signals completion.
+   */
+  waitForContentResponse(actionName: string, timeoutMs: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+
+      const onMessage = (msg: any) => {
+        if (settled) return;
+        if (msg?.action === actionName || msg?.target === 'background' && msg?.action === actionName) {
+          settled = true;
+          browser.runtime.onMessage.removeListener(onMessage);
+          resolve();
+        }
+      };
+
+      browser.runtime.onMessage.addListener(onMessage);
+
+      // Safety timeout — never hang forever if the content script crashes
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          browser.runtime.onMessage.removeListener(onMessage);
+          console.warn(`[LootNova] waitForContentResponse('${actionName}') timed out after ${timeoutMs}ms`);
+          resolve();
+        }
+      }, timeoutMs);
+    });
+  },
 });

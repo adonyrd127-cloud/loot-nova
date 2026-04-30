@@ -6,7 +6,7 @@
   <br/>
   <br/>
 
-  **Automatically claim free games from Epic Games, Amazon Prime Gaming and GOG — without lifting a finger.**
+  **Automatically claim free games from Epic Games, Amazon Prime Gaming, Steam and GOG — without lifting a finger.**
 
   <br/>
 
@@ -27,13 +27,17 @@
 |---|---|
 | 🤖 **Auto-Claim** | Automatically claims free games on a configurable schedule |
 | ⚡ **Manual Claim** | One-click instant claiming for all available games |
-| 🛍️ **Multi-Platform** | Supports Epic Games, Amazon Prime Gaming, and GOG |
-| ⏱️ **Countdown Timers** | Live timers showing when each free game expires |
-| 📜 **Claim History** | Track every game you've claimed, with date and platform |
-| 🔔 **Push Notifications** | Get notified when new free games are detected |
+| 🛍️ **Multi-Platform** | Supports Epic Games, Amazon Prime Gaming, Steam, and GOG |
+| ⏱️ **Countdown Timers** | Live expiration timers on game cards + next auto-claim HH:MM:SS countdown |
+| 📜 **Claim History** | Track every game you've claimed, with date, platform, and retail price |
+| 💰 **Savings Dashboard** | See your total estimated savings across all claimed games (via IsThereAnyDeal) |
+| 🔐 **Session Monitor** | 12-hour background alarm checks login status and notifies you on expiration |
+| 🔔 **Push Notifications** | Get notified when new free games are detected or sessions expire |
+| ⭐ **Game Badges** | OpenCritic scores and Steam Deck compatibility (ProtonDB) on each card |
+| 🔑 **GOG Auto-Redeem** | Automatically redeems Amazon-provided GOG keys on gog.com |
 | 🌐 **i18n Support** | Available in English and Spanish |
-| 🎨 **Modern UI** | Beautiful dark-themed popup with smooth animations |
-| 🔑 **Login Status** | Shows your connection status per platform |
+| 🎨 **Nova UI** | Premium dark-themed popup with glassmorphism, gradients, and micro-animations |
+| 🔑 **Login Status** | Real-time connection status per platform |
 
 ---
 
@@ -41,11 +45,12 @@
 
 <div align="center">
 
-| Platform | Auto-Claim | Games List | Login Status |
-|---|:---:|:---:|:---:|
-| 🟣 Epic Games | ✅ | ✅ | ✅ |
-| 🟠 Amazon Prime Gaming | ✅ | ✅ | ✅ |
-| ⚪ GOG | ✅ | ✅ | ✅ |
+| Platform | Auto-Claim | Games List | Login Status | Key Redeem |
+|---|:---:|:---:|:---:|:---:|
+| 🟣 Epic Games | ✅ | ✅ | ✅ | — |
+| 🟠 Amazon Prime Gaming | ✅ | ✅ | ✅ | ✅ GOG/Steam/Xbox |
+| 🔵 Steam | ✅ | ✅ | ✅ | — |
+| ⚪ GOG | ✅ | ✅ | ✅ | ✅ Auto-fill |
 
 </div>
 
@@ -78,24 +83,24 @@ npm run dev -- --browser=firefox
 
 ```bash
 # Chrome
-npx wxt build --browser=chrome
+npm run zip
 
 # Firefox
-npx wxt build -b firefox --mv3
+npm run zip:firefox
 ```
 
 ### Load the Extension
 
 1. Go to `chrome://extensions/` (or `about:debugging` in Firefox)
 2. Enable **Developer Mode**
-3. Click **Load unpacked** and select the `dist/` folder
+3. Click **Load unpacked** and select the `dist/chrome-mv3/` folder
 
 ---
 
 ## 🕹️ How to Use
 
 1. **Open the popup** by clicking the LootNova icon in your browser toolbar
-2. **Log in** to each platform you want to use (Epic, Amazon, GOG)
+2. **Log in** to each platform you want to use (Epic, Amazon, Steam, GOG)
 3. **Enable platforms** in the Settings tab
 4. **Set your claim frequency** — from every hour to once daily
 5. Sit back and let LootNova claim free games for you automatically!
@@ -112,6 +117,32 @@ npx wxt build -b firefox --mv3
 
 ---
 
+## 💰 Savings Dashboard
+
+LootNova tracks the retail value of every game you claim using the [IsThereAnyDeal](https://isthereanydeal.com/) API. Your popup shows:
+
+- **Total games claimed** with a live counter
+- **Total USD saved** as a gradient-styled number
+- **Per-game prices** in the History tab with green `💸 $X.XX` badges
+
+Prices are cached for 7 days to minimize API calls.
+
+---
+
+## 🔐 Session Monitoring
+
+A background alarm runs every 12 hours, performing silent fetch requests to each platform's auth endpoint:
+
+| Platform | Endpoint | Expiration Signal |
+|---|---|---|
+| GOG | `auth.gog.com/userData.json` | HTTP 401/403 |
+| Epic | `epicgames.com/account/v2/profile/ajaxGet` | HTTP 401/403 |
+| Amazon | `gaming.amazon.com/player/a/profile` | Redirect or invalid JSON |
+
+When a session expires, you get a native browser notification so you can re-login before the next auto-claim.
+
+---
+
 ## 🛠️ Tech Stack
 
 - **[WXT](https://wxt.dev/)** — Web Extension Toolkit (build framework)
@@ -119,6 +150,8 @@ npx wxt build -b firefox --mv3
 - **TypeScript** — Type-safe codebase
 - **Browser APIs** — `storage`, `tabs`, `scripting`, `alarms`, `notifications`
 - **i18n** — Built-in Chrome/Firefox internationalization (`_locales`)
+- **IsThereAnyDeal API** — Game price data
+- **OpenCritic / ProtonDB** — Game quality and compatibility badges
 
 ---
 
@@ -128,21 +161,28 @@ npx wxt build -b firefox --mv3
 loot-nova/
 └── wxt-dev-wxt/
     ├── entrypoints/
-    │   ├── background.ts          # Main orchestrator & alarm scheduler
-    │   ├── epic.content.ts        # Epic Games claiming logic
-    │   ├── amazon.content.ts      # Amazon Prime Gaming claiming logic
-    │   ├── steam.content.ts       # Steam claiming logic
+    │   ├── background.ts           # Main orchestrator, alarms & session checks
+    │   ├── epic.content.ts         # Epic Games claiming logic
+    │   ├── amazon.content.ts       # Amazon Prime Gaming claiming + key extraction
+    │   ├── steam.content.ts        # Steam claiming logic
+    │   ├── gog.content.ts          # GOG key auto-redemption
     │   ├── components/
-    │   │   ├── GamesList.tsx      # Games list with countdown timers
-    │   │   ├── History.tsx        # Claimed games history tab
-    │   │   ├── Settings.tsx       # Platform & frequency settings
-    │   │   ├── LoginStatus.tsx    # Per-platform login indicators
+    │   │   ├── GamesList.tsx        # Games list with countdown timers
+    │   │   ├── GameCard.tsx         # Individual card with OpenCritic/ProtonDB badges
+    │   │   ├── History.tsx          # Claimed games + savings banner
+    │   │   ├── Settings.tsx         # Platform settings + Hero stats + countdown
+    │   │   ├── LoginStatus.tsx      # Per-platform login indicators
+    │   │   ├── ManualClaimBtn.tsx   # Pulsing novaGlow button
     │   │   └── ...
-    │   ├── popup/                 # Extension popup (App.tsx, styles)
-    │   └── types/                 # Shared TypeScript types
+    │   ├── utils/
+    │   │   ├── priceService.ts     # ITAD price lookups with 7-day cache
+    │   │   ├── badgeService.ts     # OpenCritic/ProtonDB with 24h cache
+    │   │   └── helpers.ts          # DOM helpers, notifications, counters
+    │   ├── popup/                   # Extension popup (App.tsx, styles)
+    │   └── types/                   # Shared TypeScript types
     └── public/
-        ├── icon/                  # Extension icons
-        └── _locales/              # i18n files (en, es)
+        ├── icon/                    # Extension icons (16-128px)
+        └── _locales/                # i18n files (en, es)
 ```
 
 ---
@@ -153,6 +193,25 @@ LootNova supports multiple languages. Currently available:
 
 - 🇺🇸 English (`en`)
 - 🇪🇸 Spanish (`es`)
+
+---
+
+## 📝 Changelog
+
+### v1.1.0 (Current)
+- ✅ Savings Dashboard with ITAD price tracking
+- ✅ OpenCritic / ProtonDB game badges
+- ✅ GOG key auto-redemption from Amazon
+- ✅ 12-hour session expiration monitoring
+- ✅ Nova UI with glassmorphism and micro-animations
+- ✅ Content script confirmation (replaced blind timers)
+- ✅ `await` fix on `getFreeGamesAndSetOpenedFlag`
+
+### v1.0.0
+- Initial release with Epic, Amazon, Steam auto-claim
+- Claim history and countdown timers
+- Push notifications for new games
+- i18n (English + Spanish)
 
 ---
 

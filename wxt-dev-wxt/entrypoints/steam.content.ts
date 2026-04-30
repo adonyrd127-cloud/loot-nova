@@ -94,6 +94,12 @@ export default defineContentScript({
                     break;
                 }
             }
+            // Signal the background that we're done
+            try {
+                await browser.runtime.sendMessage({
+                    target: 'background', action: 'claimComplete',
+                });
+            } catch (_) { /* tab may already be closing */ }
         }
 
         function isCurrentGameFree(el: { querySelector: (arg0: string) => any; }): boolean {

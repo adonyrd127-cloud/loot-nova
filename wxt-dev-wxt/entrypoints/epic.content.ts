@@ -156,6 +156,12 @@ export default defineContentScript({
                 await incrementCounter();
             } finally {
                 removeClaimOverlay(overlay);
+                // Signal the background that we're done
+                try {
+                    await browser.runtime.sendMessage({
+                        target: 'background', action: 'claimComplete',
+                    });
+                } catch (_) { /* tab may already be closing */ }
             }
         }
 
