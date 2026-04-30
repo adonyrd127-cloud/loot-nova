@@ -4,16 +4,14 @@
  * Matches: https://www.gog.com/redeem/*
  *
  * Real GOG URL format (confirmed from screenshots):
- *   https://www.gog.com/redeem/QQPUAE5BADC73947AC
+ *   https://www.gog.com/redeem/PHGD10938832B2FE07
  *
- * When that URL is opened, GOG PRE-FILLS the code in the input automatically.
- * This script just has to:
- *   1. Wait for the input to be populated
- *   2. Click the green "Continue" button
- *   3. Show a visual overlay so the user knows what's happening
+ * GOG redemption flow (2 steps):
+ *   Step 1: Code is pre-filled from the URL → click "Continue"
+ *   Step 2: GOG shows game info + checkbox → tick checkbox → click "Redeem"
  *
  * reCAPTCHA note: GOG uses reCAPTCHA. If it blocks the click, the tab stays
- * open so the user can click Continue manually with the code already filled.
+ * open so the user can complete it manually with the code already filled.
  */
 import { defineContentScript } from 'wxt/utils/define-content-script';
 
@@ -31,12 +29,11 @@ export default defineContentScript({
         if ((window as any).__lootNovaGogRan) return;
         (window as any).__lootNovaGogRan = true;
 
-        // Extract code from URL path: /redeem/QQPUAE5BADC73947AC
+        // Extract code from URL path: /redeem/PHGD10938832B2FE07
         const pathParts = location.pathname.split('/redeem/');
         const codeFromUrl = decodeURIComponent(pathParts[1] ?? '').split('?')[0].trim();
 
         if (!codeFromUrl) {
-            // Page was opened without a code in the path — nothing to do
             console.log('[LootNova/GOG] No code in URL path, standing by.');
             return;
         }
@@ -48,23 +45,31 @@ export default defineContentScript({
 
         try {
             // ── Step 1: Wait for input to be populated ──────────────────────
-            // GOG fills the input from the URL automatically.
-            // We wait for it to appear and have a value.
             const input = await waitForFilledInput(codeFromUrl, CONTENT_WAIT_MS, POLL_MS);
 
             if (!input) {
+                // GOG might skip step 1 if the code is in the URL — check if we're
+                // already on the confirmation page (step 2)
+                const alreadyOnConfirmation = await isOnConfirmationPage();
+                if (alreadyOnConfirmation) {
+                    console.log('[LootNova/GOG] Skipped input step — already on confirmation page.');
+                    await handleConfirmationStep(overlay, codeFromUrl);
+                    return;
+                }
                 console.warn('[LootNova/GOG] Input not populated after', CONTENT_WAIT_MS, 'ms');
                 updateOverlay(overlay,
                     `⚠️ No se encontró el campo. Clave: ${codeFromUrl}`, true);
-                // Keep the tab open so the user can act
                 return;
             }
 
             await wait(600);
 
             // ── Step 2: Click Continue ──────────────────────────────────────
-            const btn = await waitForContinueButton(5_000, POLL_MS);
-            if (!btn) {
+            const continueBtn = await waitForButton(
+                ['Continue', 'Continuar', 'Check', 'Verify'],
+                5_000, POLL_MS
+            );
+            if (!continueBtn) {
                 console.warn('[LootNova/GOG] Continue button not found.');
                 updateOverlay(overlay,
                     `⚠️ Botón no encontrado. Haz click en Continue. Clave: ${codeFromUrl}`, true);
@@ -73,23 +78,12 @@ export default defineContentScript({
 
             updateOverlay(overlay, '🖱️ Haciendo click en Continue…');
             await wait(400);
-            btn.click();
+            continueBtn.click();
 
-            // ── Step 3: Wait for result ─────────────────────────────────────
-            updateOverlay(overlay, '⏳ Esperando confirmación de GOG…');
-            const success = await waitForSuccess(12_000);
-
-            if (success) {
-                updateOverlay(overlay, '✅ ¡Juego añadido a tu biblioteca de GOG!', false, true);
-                console.log('[LootNova/GOG] Redemption confirmed!');
-                // Close the tab after 4s
-                setTimeout(() => window.close(), 4_000);
-            } else {
-                // Could be reCAPTCHA or an already-used code — keep tab open
-                updateOverlay(overlay,
-                    `ℹ️ Verifica el resultado. Si hay CAPTCHA, complétalo tú. Clave: ${codeFromUrl}`, true);
-                console.log('[LootNova/GOG] Could not confirm success automatically.');
-            }
+            // ── Step 3: Handle the confirmation page ────────────────────────
+            // Wait for the confirmation page to render (GOG validates the code server-side)
+            await wait(3000);
+            await handleConfirmationStep(overlay, codeFromUrl);
 
         } catch (err) {
             console.error('[LootNova/GOG] Unexpected error:', err);
@@ -98,11 +92,74 @@ export default defineContentScript({
     },
 });
 
+// ── Confirmation step (Step 2) ────────────────────────────────────────────────
+
+/**
+ * Handles the GOG confirmation page that appears after Continue/code validation:
+ *   - Shows game name + image
+ *   - Has a checkbox (terms/agreement)
+ *   - Has "Cancel" and "Redeem" buttons
+ */
+async function handleConfirmationStep(overlay: HTMLElement, code: string): Promise<void> {
+    updateOverlay(overlay, '⏳ Esperando página de confirmación…');
+
+    // Wait for the Redeem button or confirmation page to appear
+    const redeemBtn = await waitForRedeemButton(12_000, POLL_MS);
+
+    if (!redeemBtn) {
+        // Maybe the code was invalid or already used
+        const bodyText = document.body?.textContent ?? '';
+        if (/already.*redeemed|ya.*canjeado|invalid|no.*valid|expired|expirado/i.test(bodyText)) {
+            updateOverlay(overlay, `⚠️ Código inválido o ya canjeado: ${code}`, true);
+        } else {
+            updateOverlay(overlay,
+                `⚠️ No se encontró el botón Redeem. Complétalo manualmente. Clave: ${code}`, true);
+        }
+        console.warn('[LootNova/GOG] Redeem button not found on confirmation page.');
+        return;
+    }
+
+    // ── Tick the checkbox (if present) ────────────────────────────────────
+    updateOverlay(overlay, '☑️ Marcando casilla de confirmación…');
+    await tickCheckbox();
+    await wait(500);
+
+    // ── Click Redeem ─────────────────────────────────────────────────────
+    updateOverlay(overlay, '🖱️ Haciendo click en Redeem…');
+    await wait(300);
+    redeemBtn.click();
+
+    // ── Wait for final result ────────────────────────────────────────────
+    updateOverlay(overlay, '⏳ Esperando confirmación final de GOG…');
+    const success = await waitForFinalSuccess(15_000);
+
+    if (success) {
+        updateOverlay(overlay, '✅ ¡Juego añadido a tu biblioteca de GOG!', false, true);
+        console.log('[LootNova/GOG] Redemption confirmed!');
+        setTimeout(() => window.close(), 4_000);
+    } else {
+        updateOverlay(overlay,
+            `ℹ️ Verifica el resultado. Si hay CAPTCHA, complétalo. Clave: ${code}`, true);
+        console.log('[LootNova/GOG] Could not confirm success automatically.');
+    }
+}
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
 /**
- * Waits for the code input to appear on the page AND be populated with the
- * expected code value (GOG fills it from the URL path automatically).
+ * Checks if we're already on the confirmation page (step 2)
+ * by looking for the Redeem button or game info display.
+ */
+async function isOnConfirmationPage(): Promise<boolean> {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    return buttons.some(b => {
+        const text = b.textContent?.trim().toLowerCase() ?? '';
+        return text === 'redeem' || text === 'canjear';
+    });
+}
+
+/**
+ * Waits for the code input to appear on the page AND be populated.
  */
 async function waitForFilledInput(
     expectedCode: string,
@@ -124,11 +181,9 @@ async function waitForFilledInput(
         for (const sel of selectors) {
             const el = document.querySelector<HTMLInputElement>(sel);
             if (el && el.offsetParent !== null) {
-                // Accept if it already has the expected value OR any non-empty value
                 if (el.value && el.value.toUpperCase().includes(expectedCode.toUpperCase().slice(0, 6))) {
                     return el;
                 }
-                // Also accept if GOG filled it differently (some normalisation)
                 if (el.value.trim().length > 5) return el;
             }
         }
@@ -138,23 +193,30 @@ async function waitForFilledInput(
 }
 
 /**
- * Waits for the "Continue" / "Redeem" submit button.
+ * Waits for a button by text content (e.g., "Continue", "Continuar").
  */
-async function waitForContinueButton(timeoutMs: number, intervalMs: number): Promise<HTMLButtonElement | null> {
-    const selectors = [
-        'button[type="submit"]:not([disabled])',
-        'button[class*="submit" i]:not([disabled])',
-        'button[class*="redeem" i]:not([disabled])',
-        'button[class*="continue" i]:not([disabled])',
-        'button[class*="btn" i]:not([disabled])',
-        'form button:not([disabled])',
-    ];
-
+async function waitForButton(
+    labels: string[],
+    timeoutMs: number,
+    intervalMs: number
+): Promise<HTMLButtonElement | null> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        for (const sel of selectors) {
-            const el = document.querySelector<HTMLButtonElement>(sel);
-            if (el && !el.disabled && el.offsetParent !== null) return el;
+        const allBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(
+            'button:not([disabled]), input[type="submit"]:not([disabled])'
+        ));
+        for (const btn of allBtns) {
+            const text = btn.textContent?.trim().toLowerCase() ?? '';
+            if (labels.some(l => text.includes(l.toLowerCase())) && btn.offsetParent !== null) {
+                return btn;
+            }
+        }
+        // Also try submit buttons
+        const submitBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(
+            'button[type="submit"]:not([disabled])'
+        ));
+        if (submitBtns.length > 0 && submitBtns[0].offsetParent !== null) {
+            return submitBtns[0];
         }
         await wait(intervalMs);
     }
@@ -162,20 +224,132 @@ async function waitForContinueButton(timeoutMs: number, intervalMs: number): Pro
 }
 
 /**
- * Waits for a success message or page change indicating the code was redeemed.
+ * Waits specifically for the green "Redeem" button on the confirmation page.
  */
-async function waitForSuccess(timeoutMs: number): Promise<boolean> {
+async function waitForRedeemButton(timeoutMs: number, intervalMs: number): Promise<HTMLButtonElement | null> {
     const deadline = Date.now() + timeoutMs;
-    const originalPath = location.pathname;
+    while (Date.now() < deadline) {
+        // Strategy 1: Find by text content
+        const allBtns = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
+        for (const btn of allBtns) {
+            const text = btn.textContent?.trim().toLowerCase() ?? '';
+            if ((text === 'redeem' || text === 'canjear') && !btn.disabled && btn.offsetParent !== null) {
+                return btn;
+            }
+        }
+
+        // Strategy 2: Find by class/style (GOG uses green styled buttons)
+        const greenBtns = document.querySelectorAll<HTMLButtonElement>(
+            'button[class*="redeem" i], button[class*="primary" i], button[class*="green" i]'
+        );
+        for (const btn of Array.from(greenBtns)) {
+            const text = btn.textContent?.trim().toLowerCase() ?? '';
+            if (!btn.disabled && btn.offsetParent !== null && text !== 'cancel' && text !== 'cancelar') {
+                return btn;
+            }
+        }
+
+        // Strategy 3: Second button in a Cancel/Redeem pair
+        const visibleBtns = allBtns.filter(b => b.offsetParent !== null && !b.disabled);
+        if (visibleBtns.length === 2) {
+            const second = visibleBtns[1];
+            const text = second.textContent?.trim().toLowerCase() ?? '';
+            if (text !== 'cancel' && text !== 'cancelar') return second;
+        }
+
+        await wait(intervalMs);
+    }
+    return null;
+}
+
+/**
+ * Finds and ticks any checkbox on the confirmation page.
+ * GOG requires agreeing to terms before the Redeem button works.
+ */
+async function tickCheckbox(): Promise<void> {
+    // Strategy 1: Direct checkbox inputs
+    const checkboxes = Array.from(document.querySelectorAll<HTMLInputElement>(
+        'input[type="checkbox"]:not(:checked)'
+    ));
+    for (const cb of checkboxes) {
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        cb.dispatchEvent(new Event('input', { bubbles: true }));
+        cb.click();
+        console.log('[LootNova/GOG] Ticked checkbox:', cb.name || cb.id || cb.className);
+    }
+
+    // Strategy 2: Custom checkbox elements (span/div styled as checkbox)
+    const customCheckboxes = Array.from(document.querySelectorAll(
+        '[class*="checkbox" i]:not(.checked):not([class*="checked"]), ' +
+        '[role="checkbox"][aria-checked="false"], ' +
+        'label[class*="checkbox" i]'
+    ));
+    for (const el of customCheckboxes) {
+        (el as HTMLElement).click();
+        console.log('[LootNova/GOG] Clicked custom checkbox:', (el as HTMLElement).className);
+        await wait(200);
+    }
+
+    // Strategy 3: Find by label text
+    const labels = Array.from(document.querySelectorAll('label'));
+    for (const label of labels) {
+        const text = label.textContent?.toLowerCase() ?? '';
+        if (/agree|accept|terms|i understand|entiendo|acepto|condicion/i.test(text)) {
+            const input = label.querySelector<HTMLInputElement>('input[type="checkbox"]');
+            if (input && !input.checked) {
+                input.checked = true;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.click();
+                console.log('[LootNova/GOG] Ticked checkbox via label:', text.substring(0, 40));
+            } else if (!input) {
+                // Label IS the clickable element
+                label.click();
+                console.log('[LootNova/GOG] Clicked label as checkbox:', text.substring(0, 40));
+            }
+        }
+    }
+}
+
+/**
+ * Waits for FINAL success after clicking Redeem.
+ * Distinguished from the confirmation page by checking for stronger success indicators.
+ */
+async function waitForFinalSuccess(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    const originalUrl = location.href;
 
     while (Date.now() < deadline) {
         const body = document.body?.textContent ?? '';
-        // Success indicators (EN + ES + GOG-specific)
-        if (/added to|library|biblioteca|redeemed|canjeado|thank|gracias|success/i.test(body)) return true;
-        // URL change can indicate success (GOG may navigate after redeem)
-        if (location.pathname !== originalPath) return true;
-        // Success element
-        if (document.querySelector('[class*="success" i], [class*="confirmed" i], [class*="thank" i]')) return true;
+
+        // Strong success indicators (these only appear AFTER successful redemption)
+        if (/successfully\s+redeemed|canjeado\s+exitosamente|thank\s+you\s+for\s+redeem/i.test(body)) return true;
+        if (/has\s+been\s+added|fue\s+añadido|se\s+ha\s+añadido/i.test(body)) return true;
+
+        // Page changed to a success/thank-you page
+        if (location.href !== originalUrl && /success|thank|gracias/i.test(location.href)) return true;
+
+        // Success banner/element appeared
+        const successEl = document.querySelector(
+            '[class*="success-message" i], [class*="successMessage" i], ' +
+            '[class*="thank-you" i], [class*="redeemed" i], ' +
+            '.redemption-success, .code-redeemed'
+        );
+        if (successEl) return true;
+
+        // The Redeem button disappeared (GOG removes it after success)
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const redeemGone = !allBtns.some(b => {
+            const text = b.textContent?.trim().toLowerCase() ?? '';
+            return text === 'redeem' || text === 'canjear';
+        });
+        const cancelGone = !allBtns.some(b => {
+            const text = b.textContent?.trim().toLowerCase() ?? '';
+            return text === 'cancel' || text === 'cancelar';
+        });
+        // Both buttons gone = page transitioned to success state
+        if (redeemGone && cancelGone && allBtns.length > 0) return true;
+
         await wait(500);
     }
     return false;
@@ -197,7 +371,7 @@ function createOverlay(code: string): HTMLElement {
     ].join('');
     document.body.appendChild(host);
 
-    const shadow = host.attachShadow({ mode: 'open' }); // open so we can update it
+    const shadow = host.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
     style.textContent = [
