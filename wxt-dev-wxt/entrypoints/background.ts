@@ -232,7 +232,12 @@ export default defineBackground({
     }
 
     try {
-      await this.getSteamGamesList(steamCheck);
+      const steamFoundGames = await this.getSteamGamesList(steamCheck);
+      // If the background HTML fetch found nothing, fall through to content script
+      // (the authenticated browser session may see different results)
+      if (!steamFoundGames && steamCheck) {
+        await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
+      }
     } catch (e) {
       console.error("getSteamGamesList failed:", e);
       if (steamCheck) await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
@@ -659,7 +664,7 @@ export default defineBackground({
     };
   },
 
-  async getSteamGamesList(shouldClaim: boolean = true) {
+  async getSteamGamesList(shouldClaim: boolean = true): Promise<boolean> {
     const html = await fetch(STEAM_GAMES_URL).then(r => r.text());
     const root = parse(html);
     const resolveUrl = (u: string) =>
@@ -667,7 +672,7 @@ export default defineBackground({
 
     const container = root.querySelector('div#search_result_container');
     const freeGameNodes = container ? container.querySelectorAll('a.search_result_row') : [];
-    if (freeGameNodes.length === 0) return;
+    if (freeGameNodes.length === 0) return false;
 
     const gamesArr: FreeGame[] = [];
     for (const node of freeGameNodes) {
@@ -693,10 +698,11 @@ export default defineBackground({
     const newGames: FreeGame[] = gamesArr.filter(game =>
         !currFreeGames.some(g => g?.title === game?.title)
     );
-    if (newGames.length === 0) return;
+    if (newGames.length === 0) return false;
     await setStorageItem('steamGames', newGames);
     sendNewGamesNotification(newGames.length);
     if (shouldClaim) await this.claimGames(newGames);
+    return true;
   },
 
   async clearGamesList() {
