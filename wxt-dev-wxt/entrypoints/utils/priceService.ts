@@ -15,6 +15,11 @@
  */
 
 import { storage } from '#imports';
+import { CircuitBreaker } from './circuitBreaker';
+import { logger } from './logger';
+
+// Circuit breaker for ITAD API — trips after 5 failures, resets after 10 min
+const itadBreaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 10 * 60 * 1000, name: 'itad' });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,59 +101,60 @@ export async function fetchRetailPrice(gameTitle: string): Promise<number | null
     if (cached !== undefined) return cached;
 
     try {
-        // ── Step 1: Search for the game ID ───────────────────────────────────
-        const searchUrl = `${ITAD_BASE}/games/search/v1?title=${encodeURIComponent(gameTitle)}&results=5`;
-        const searchResp = await fetch(searchUrl, {
-            signal: AbortSignal.timeout(TIMEOUT_MS),
+        return await itadBreaker.execute(async () => {
+            // ── Step 1: Search for the game ID ───────────────────────────────────
+            const searchUrl = `${ITAD_BASE}/games/search/v1?title=${encodeURIComponent(gameTitle)}&results=5`;
+            const searchResp = await fetch(searchUrl, {
+                signal: AbortSignal.timeout(TIMEOUT_MS),
+            });
+            if (!searchResp.ok) throw new Error(`ITAD search HTTP ${searchResp.status}`);
+
+            const searchResults = (await searchResp.json()) as ItadSearchResult[];
+            if (!searchResults?.length) {
+                await writePriceCache(key, null);
+                return null;
+            }
+
+            // Pick the closest title match
+            const gameId = findBestMatch(gameTitle, searchResults);
+            if (!gameId) {
+                await writePriceCache(key, null);
+                return null;
+            }
+
+            // ── Step 2: Fetch prices for that game ────────────────────────────────
+            const pricesUrl = `${ITAD_BASE}/games/prices/v3?country=US&shops=${SHOP_IDS}`;
+            const pricesResp = await fetch(pricesUrl, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify([gameId]),
+                signal:  AbortSignal.timeout(TIMEOUT_MS),
+            });
+            if (!pricesResp.ok) throw new Error(`ITAD prices HTTP ${pricesResp.status}`);
+
+            const pricesData = (await pricesResp.json()) as ItadPriceOverview[];
+            const overview   = pricesData?.[0];
+            if (!overview?.deals?.length) {
+                await writePriceCache(key, null);
+                return null;
+            }
+
+            // Use the highest regular price across all shops (most conservative estimate)
+            const regularPrices = overview.deals
+                .map(d => d.regular?.amount ?? 0)
+                .filter(p => p > 0);
+
+            if (!regularPrices.length) {
+                await writePriceCache(key, null);
+                return null;
+            }
+
+            const price = Math.max(...regularPrices);
+            await writePriceCache(key, price);
+            return price;
         });
-        if (!searchResp.ok) throw new Error(`ITAD search HTTP ${searchResp.status}`);
-
-        const searchResults = (await searchResp.json()) as ItadSearchResult[];
-        if (!searchResults?.length) {
-            await writePriceCache(key, null);
-            return null;
-        }
-
-        // Pick the closest title match
-        const gameId = findBestMatch(gameTitle, searchResults);
-        if (!gameId) {
-            await writePriceCache(key, null);
-            return null;
-        }
-
-        // ── Step 2: Fetch prices for that game ────────────────────────────────
-        const pricesUrl = `${ITAD_BASE}/games/prices/v3?country=US&shops=${SHOP_IDS}`;
-        const pricesResp = await fetch(pricesUrl, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify([gameId]),
-            signal:  AbortSignal.timeout(TIMEOUT_MS),
-        });
-        if (!pricesResp.ok) throw new Error(`ITAD prices HTTP ${pricesResp.status}`);
-
-        const pricesData = (await pricesResp.json()) as ItadPriceOverview[];
-        const overview   = pricesData?.[0];
-        if (!overview?.deals?.length) {
-            await writePriceCache(key, null);
-            return null;
-        }
-
-        // Use the highest regular price across all shops (most conservative estimate)
-        const regularPrices = overview.deals
-            .map(d => d.regular?.amount ?? 0)
-            .filter(p => p > 0);
-
-        if (!regularPrices.length) {
-            await writePriceCache(key, null);
-            return null;
-        }
-
-        const price = Math.max(...regularPrices);
-        await writePriceCache(key, price);
-        return price;
-
     } catch (err) {
-        console.warn('[LootNova/ITAD] Price lookup failed for', gameTitle, ':', err);
+        logger.warn(`Price lookup failed for "${gameTitle}"`, { action: 'itad' });
         // Do NOT cache errors — retry on next claim
         return null;
     }

@@ -11,6 +11,10 @@ import {
     waitForElement,
     waitForPageLoad
 } from "@/entrypoints/utils/helpers.ts";
+import { ContentScriptRunner } from "@/entrypoints/utils/contentScriptFramework.ts";
+import { sanitizeGameTitle, sanitizeUrl } from "@/entrypoints/utils/sanitize.ts";
+
+const runner = new ContentScriptRunner();
 
 export default defineContentScript({
     matches: ['https://store.steampowered.com/*'],
@@ -41,9 +45,9 @@ export default defineContentScript({
             let gamesArr: FreeGame[] = [];
             freeGames?.forEach((freeGame) => {
                 const newFreeGame = {
-                    link: freeGame.href ?? '',
-                    img: freeGame.getElementsByTagName('img')[0]?.src ?? '',
-                    title: freeGame.querySelector('span.title')?.innerHTML ?? '',
+                    link: sanitizeUrl(freeGame.href ?? ''),
+                    img: sanitizeUrl(freeGame.getElementsByTagName('img')[0]?.src ?? ''),
+                    title: sanitizeGameTitle(freeGame.querySelector('span.title')?.innerHTML ?? ''),
                     platform: Platforms.Steam
                 };
                 gamesArr.push(newFreeGame);
@@ -69,37 +73,39 @@ export default defineContentScript({
             const buyOptions = await waitForAllElements(document, "div.game_area_purchase_game");
             if (!buyOptions) return;
 
-            for (const buyOption of buyOptions) {
-                if (buyOption && isCurrentGameFree(buyOption)) {
-                    // Find the "Add to Account" anchor
-                    const anchor = await waitForElement(buyOption, "div.btn_addtocart a");
-                    if (!anchor) continue;
+            const pageTitle = document.title.replace(/\s*[|-].*$/, '').trim() || undefined;
 
-                    const href = (anchor as HTMLAnchorElement).getAttribute("href") || "";
+            await runner.run([{
+                name: 'steamClaim',
+                timeoutMs: 15000,
+                execute: async () => {
+                    for (const buyOption of buyOptions) {
+                        if (buyOption && isCurrentGameFree(buyOption)) {
+                            // Find the "Add to Account" anchor
+                            const anchor = await waitForElement(buyOption, "div.btn_addtocart a");
+                            if (!anchor) continue;
 
-                    // Special-case Steam's javascript: URL to avoid CSP violation
-                    const m = href.match(/^javascript:\s*addToCart\(\s*(\d+)\s*\)\s*;?\s*$/i);
-                    if (m) {
-                        const appid = parseInt(m[1], 10);
-                        await browser.runtime.sendMessage({
-                            target: "background",
-                            action: "steamAddToCart",
-                            data: { appid }
-                        });
-                    } else {
-                        await clickWhenVisible("div.btn_addtocart a", buyOption);
+                            const href = (anchor as HTMLAnchorElement).getAttribute("href") || "";
+
+                            // Special-case Steam's javascript: URL to avoid CSP violation
+                            const m = href.match(/^javascript:\s*addToCart\(\s*(\d+)\s*\)\s*;?\s*$/i);
+                            if (m) {
+                                const appid = parseInt(m[1], 10);
+                                await browser.runtime.sendMessage({
+                                    target: "background",
+                                    action: "steamAddToCart",
+                                    data: { appid }
+                                });
+                            } else {
+                                await clickWhenVisible("div.btn_addtocart a", buyOption);
+                            }
+
+                            await incrementCounter();
+                            break;
+                        }
                     }
-
-                    await incrementCounter();
-                    break;
                 }
-            }
-            // Signal the background that we're done
-            try {
-                await browser.runtime.sendMessage({
-                    target: 'background', action: 'claimComplete',
-                });
-            } catch (_) { /* tab may already be closing */ }
+            }], 'steam', pageTitle);
         }
 
         function isCurrentGameFree(el: { querySelector: (arg0: string) => any; }): boolean {

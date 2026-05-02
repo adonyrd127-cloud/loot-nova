@@ -8,6 +8,11 @@
  */
 import { storage } from '#imports';
 import type { BadgeCacheEntry, OpenCriticGame, ProtonDbSummary } from '@/entrypoints/types/badgeData.ts';
+import { CircuitBreaker } from './circuitBreaker';
+import { logger } from './logger';
+
+const ocBreaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 10 * 60 * 1000, name: 'opencritic' });
+const protonBreaker = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 10 * 60 * 1000, name: 'protondb' });
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -46,19 +51,22 @@ export async function fetchOpenCriticScore(gameName: string): Promise<number | n
     if (cached) return cached.opencritic?.score ?? null;
 
     try {
-        const url = `https://api.opencritic.com/api/game/search?criteria=${encodeURIComponent(gameName)}`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-        if (!resp.ok) throw new Error(`OpenCritic HTTP ${resp.status}`);
+        return await ocBreaker.execute(async () => {
+            const url = `https://api.opencritic.com/api/game/search?criteria=${encodeURIComponent(gameName)}`;
+            const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            if (!resp.ok) throw new Error(`OpenCritic HTTP ${resp.status}`);
 
-        const results = (await resp.json()) as OpenCriticGame[];
-        const score = results?.[0]?.score ?? null;
+            const results = (await resp.json()) as OpenCriticGame[];
+            const score = results?.[0]?.score ?? null;
 
-        await writeCache(key, {
-            cachedAt: new Date().toISOString(),
-            opencritic: { score },
+            await writeCache(key, {
+                cachedAt: new Date().toISOString(),
+                opencritic: { score },
+            });
+            return score;
         });
-        return score;
-    } catch {
+    } catch (e) {
+        logger.warn(`OpenCritic lookup failed for "${gameName}"`, { action: 'opencritic' });
         return null; // graceful fallback — badge won't show
     }
 }
@@ -77,19 +85,22 @@ export async function fetchProtonDbTier(steamAppId: string): Promise<ProtonDbSum
     if (cached) return cached.protondb?.tier ?? null;
 
     try {
-        const url = `https://www.protondb.com/api/v1/reports/summaries/${steamAppId}.json`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-        if (!resp.ok) throw new Error(`ProtonDB HTTP ${resp.status}`);
+        return await protonBreaker.execute(async () => {
+            const url = `https://www.protondb.com/api/v1/reports/summaries/${steamAppId}.json`;
+            const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            if (!resp.ok) throw new Error(`ProtonDB HTTP ${resp.status}`);
 
-        const data = (await resp.json()) as ProtonDbSummary;
-        const tier = data?.tier ?? null;
+            const data = (await resp.json()) as ProtonDbSummary;
+            const tier = data?.tier ?? null;
 
-        await writeCache(key, {
-            cachedAt: new Date().toISOString(),
-            protondb: { tier },
+            await writeCache(key, {
+                cachedAt: new Date().toISOString(),
+                protondb: { tier },
+            });
+            return tier;
         });
-        return tier;
-    } catch {
+    } catch (e) {
+        logger.warn(`ProtonDB lookup failed for app ${steamAppId}`, { action: 'protondb' });
         return null; // graceful fallback — badge won't show
     }
 }

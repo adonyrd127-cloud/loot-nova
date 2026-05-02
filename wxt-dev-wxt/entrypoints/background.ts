@@ -9,6 +9,10 @@ import {browser} from "wxt/browser";
 import {EpicElement, EpicKeyImage, EpicSearchResponse} from "@/entrypoints/types/epicGame.ts";
 import {sendClaimNotification, sendNewGamesNotification, sendSessionExpiredNotification} from "@/entrypoints/utils/helpers.ts";
 import {fetchRetailPrice} from "@/entrypoints/utils/priceService.ts";
+import {logger} from "@/entrypoints/utils/logger.ts";
+import {validateGameUrl} from "@/entrypoints/utils/urlValidator.ts";
+import {sanitizeGameTitle, sanitizeUrl} from "@/entrypoints/utils/sanitize.ts";
+import {EpicSearchResponseSchema} from "@/entrypoints/types/validators.ts";
 
 const EPIC_API_URL    = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
 const EPIC_GAMES_URL  = "https://store.epicgames.com/";
@@ -224,43 +228,46 @@ export default defineBackground({
   async getFreeGamesList() {
     const { steamCheck, epicCheck, amazonCheck } = await getStorageItems(["steamCheck", "epicCheck", "amazonCheck"]);
 
-    try {
-      await this.getEpicGamesList(epicCheck);
-    } catch (e) {
-      console.error("getEpicGamesList failed:", e);
-      if (epicCheck) await this.openTabAndSendActionToContent(EPIC_GAMES_URL, "getFreeGames");
+    // ── Parallel fetching — Epic + Steam run concurrently (~2x faster) ──
+    const promises: Promise<void>[] = [];
+
+    if (epicCheck) {
+      promises.push(
+        this.getEpicGamesList(true).catch(async (e: unknown) => {
+          logger.error('getEpicGamesList failed', { platform: 'epic' }, e as Error);
+          await this.openTabAndSendActionToContent(EPIC_GAMES_URL, "getFreeGames");
+        })
+      );
     }
 
-    try {
-      const steamFoundGames = await this.getSteamGamesList(steamCheck);
-      // If the background HTML fetch found nothing, fall through to content script
-      // (the authenticated browser session may see different results)
-      if (!steamFoundGames && steamCheck) {
-        await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
-      }
-    } catch (e) {
-      console.error("getSteamGamesList failed:", e);
-      if (steamCheck) await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
+    if (steamCheck) {
+      promises.push(
+        this.getSteamGamesList(true).then(async (found) => {
+          if (!found) await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
+        }).catch(async (e: unknown) => {
+          logger.error('getSteamGamesList failed', { platform: 'steam' }, e as Error);
+          await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
+        })
+      );
     }
 
-    // Amazon has no public API — always use content script.
-    // We wait for the content script to finish scraping and send back a
-    // 'claimFreeGames' message, with a safety timeout of 45s.
-    try {
-      if (amazonCheck) {
-        // Always clear stale data before fetching fresh games
+    // Run Epic + Steam in parallel
+    await Promise.allSettled(promises);
+
+    // Amazon has no public API — always use content script (sequential, needs its own tab)
+    if (amazonCheck) {
+      try {
         await setStorageItem('amazonGames', []);
         const tab = await browser.tabs.create({ url: AMAZON_GAMES_URL, active: false });
         if (tab?.id) {
           await this.waitForTabToLoad(tab.id);
           await browser.tabs.sendMessage(tab.id, { target: 'content', action: 'getFreeGames' });
-          // Wait for content script to respond OR safety timeout
           await this.waitForContentResponse('claimFreeGames', 45_000);
           try { await browser.tabs.remove(tab.id); } catch (_) {}
         }
+      } catch (e) {
+        logger.error('Amazon getFreeGames failed', { platform: 'amazon' }, e as Error);
       }
-    } catch (e) {
-      console.error("Amazon getFreeGames failed:", e);
     }
   },
 
@@ -268,6 +275,12 @@ export default defineBackground({
     void this.setBadgeText(games.length.toString());
     for (const game of games) {
       try {
+        // ── Security: validate URL before opening tab ──
+        if (!validateGameUrl(game.link, game.platform)) {
+          logger.error('Blocked claim for invalid URL', { platform: game.platform, gameId: game.title });
+          continue;
+        }
+
         const tab = await browser.tabs.create({ url: game.link, active: false });
         if (!tab?.id) continue;
         await this.waitForTabToLoad(tab.id);
@@ -288,7 +301,7 @@ export default defineBackground({
         // Save to claimed history
         await this.addToHistory(game);
       } catch (e) {
-        console.error(`Failed to claim "${game.title}":`, e);
+        logger.error(`Failed to claim "${game.title}"`, { platform: game.platform }, e as Error);
       }
     }
   },
@@ -314,9 +327,9 @@ export default defineBackground({
       // Keep last 100 entries, newest first
       const updated = [entry, ...history].slice(0, 100);
       await setStorageItem("claimedHistory", updated);
-      console.log(`[LootNova] Saved "${game.title}" to history (price: $${retailPrice ?? 'N/A'})`);
+      logger.info(`Saved "${game.title}" to history (price: $${retailPrice ?? 'N/A'})`, { platform: game.platform, action: 'history' });
     } catch (e) {
-      console.error("addToHistory failed:", e);
+      logger.error('addToHistory failed', { action: 'history' }, e as Error);
     }
   },
 
@@ -562,9 +575,9 @@ export default defineBackground({
         await setStorageItem("amazonLoggedIn", amazonLoggedIn);
       }
 
-      console.log("[LootNova] Login status refreshed:", { steamLoggedIn, epicLoggedIn, amazonLoggedIn });
+      logger.info('Login status refreshed', { action: 'loginCheck' });
     } catch (e) {
-      console.error("[LootNova] checkLoginStatuses failed:", e);
+      logger.error('checkLoginStatuses failed', { action: 'loginCheck' }, e as Error);
     }
   },
 
@@ -607,11 +620,19 @@ export default defineBackground({
   async getEpicGamesList(shouldClaim: boolean = true) {
     const response = await fetch(EPIC_API_URL);
     if (!response.ok) {
-      console.error("Failed to fetch Epic Games data:", response.statusText);
+      logger.error("Failed to fetch Epic Games data", { platform: 'epic' }, new Error(response.statusText));
       return;
     }
-    const data = (await response.json()) as EpicSearchResponse;
-    const games: EpicElement[] = data?.data?.Catalog?.searchStore?.elements ?? [];
+    const rawData = await response.json();
+    const parsed = EpicSearchResponseSchema.safeParse(rawData);
+    
+    if (!parsed.success) {
+      logger.warn('Invalid Epic game data received', { platform: 'epic', errors: parsed.error.errors });
+      return;
+    }
+
+    const data = parsed.data;
+    const games: EpicElement[] = (data?.data?.Catalog?.searchStore?.elements as unknown as EpicElement[]) ?? [];
 
     const freeGames = games.filter((game) =>
         game.price?.totalPrice?.discountPrice === 0 &&
@@ -650,9 +671,9 @@ export default defineBackground({
         ? game.promotions?.upcomingPromotionalOffers?.[0]?.promotionalOffers?.[0]
         : game.promotions?.promotionalOffers?.[0]?.promotionalOffers?.[0]) ?? {};
     return {
-      title: game.title ?? "",
+      title: sanitizeGameTitle(game.title ?? ""),
       platform: Platforms.Epic,
-      link: `https://www.epicgames.com/store/en-US/${path}/${epicSlug}`,
+      link: sanitizeUrl(`https://www.epicgames.com/store/en-US/${path}/${epicSlug}`),
       img:
           game.keyImages?.find((img: EpicKeyImage) => img.type === "Thumbnail")?.url ||
           game.keyImages?.[0]?.url ||
@@ -677,7 +698,8 @@ export default defineBackground({
     const gamesArr: FreeGame[] = [];
     for (const node of freeGameNodes) {
       const href  = node.getAttribute('href') ?? '';
-      const title = node.querySelector('span.title')?.text?.trim() ?? '';
+      const rawTitle = node.querySelector('span.title')?.text?.trim() ?? '';
+      const title = sanitizeGameTitle(rawTitle);
       const imgEl = node.querySelector('img');
       const imgRaw =
           imgEl?.getAttribute('src')?.trim() ||
@@ -686,8 +708,8 @@ export default defineBackground({
 
       if (href && title) {
         gamesArr.push({
-          link: resolveUrl(href),
-          img: imgRaw ? resolveUrl(imgRaw) : '',
+          link: sanitizeUrl(resolveUrl(href)),
+          img: imgRaw ? sanitizeUrl(resolveUrl(imgRaw)) : '',
           title,
           platform: Platforms.Steam,
         });
