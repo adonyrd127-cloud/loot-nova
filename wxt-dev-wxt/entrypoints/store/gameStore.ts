@@ -142,3 +142,11 @@ export const useGameStore = create<GameState>()(
     }
   )
 );
+
+// Sync changes across contexts (e.g. background -> popup)
+storage.watch<any>('local:lootnova-store', (newValue) => {
+  if (newValue) {
+    useGameStore.setState(newValue);
+  }
+});
+

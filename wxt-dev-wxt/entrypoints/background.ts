@@ -13,6 +13,10 @@ import {logger} from "@/entrypoints/utils/logger.ts";
 import {validateGameUrl} from "@/entrypoints/utils/urlValidator.ts";
 import {sanitizeGameTitle, sanitizeUrl} from "@/entrypoints/utils/sanitize.ts";
 import {EpicSearchResponseSchema} from "@/entrypoints/types/validators.ts";
+import {PlatformOrchestrator} from "@/entrypoints/services/PlatformOrchestrator.ts";
+import {registry} from "@/entrypoints/platforms/PlatformRegistry.ts";
+
+const orchestrator = new PlatformOrchestrator(registry);
 
 const EPIC_API_URL    = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
 const EPIC_GAMES_URL  = "https://store.epicgames.com/";
@@ -419,167 +423,11 @@ export default defineBackground({
     }
   },
 
-  /**
-   * Checks login status for Steam, Epic, and Amazon.
-   *
-   * Strategy (in order):
-   *  1. Find an already-open tab for the platform and read the DOM via executeScript
-   *     — same logic the content scripts use, so it's always accurate.
-   *  2. Fall back to browser.cookies.getAll() searching for known session cookies.
-   *  3. Leave null (Unknown) only if truly undetectable.
-   */
   async checkLoginStatuses() {
-    try {
-      // ── Steam ─────────────────────────────────────────────────────────────
-      let steamLoggedIn: boolean | null = null;
-
-      const steamTabs = await browser.tabs.query({ url: "https://store.steampowered.com/*" }).catch(() => []);
-      if (steamTabs.length > 0 && steamTabs[0].id) {
-        try {
-          const results = await browser.scripting.executeScript({
-            target: { tabId: steamTabs[0].id },
-            func: () => !!document.querySelector("#account_pulldown"),
-          });
-          if (results?.[0]?.result !== undefined) {
-            steamLoggedIn = results[0].result as boolean;
-          }
-        } catch (_) {}
-      }
-
-      if (steamLoggedIn === null) {
-        // Cookie fallback — steamLoginSecure is set on .steampowered.com
-        const cookies = await browser.cookies.getAll({ name: "steamLoginSecure" }).catch(() => []);
-        if (cookies.length > 0) steamLoggedIn = true;
-      }
-
-      if (steamLoggedIn === null) {
-        // Fetch fallback — Steam's userdata endpoint returns { logoff: 0 } when logged in
-        try {
-          const resp = await fetch("https://store.steampowered.com/dynamicstore/userdata/?t=0", {
-            credentials: "include",
-          });
-          if (resp.ok) {
-            const json = await resp.json();
-            // rgWishlist only exists when logged in; logoff:0 means session is active
-            steamLoggedIn = Array.isArray(json?.rgWishlist) && json.logoff === 0;
-          }
-        } catch (_) {}
-      }
-
-      // ── Save & compare Steam login state ────────────────────────────────
-      if (steamLoggedIn !== null) {
-        const prevSteam = await getStorageItem("steamLoggedIn");
-        if (prevSteam === true && steamLoggedIn === false) {
-          sendSessionExpiredNotification('Steam');
-        }
-        await setStorageItem("steamLoggedIn", steamLoggedIn);
-      }
-
-      // ── Epic Games ────────────────────────────────────────────────────────
-      let epicLoggedIn: boolean | null = null;
-
-      const epicTabs = await browser.tabs.query({ url: "https://store.epicgames.com/*" }).catch(() => []);
-      if (epicTabs.length === 0) {
-        // Also check www.epicgames.com (account pages, etc.)
-        const epicTabs2 = await browser.tabs.query({ url: "https://www.epicgames.com/*" }).catch(() => []);
-        epicTabs.push(...epicTabs2);
-      }
-
-      if (epicTabs.length > 0 && epicTabs[0].id) {
-        try {
-          const results = await browser.scripting.executeScript({
-            target: { tabId: epicTabs[0].id },
-            func: () => {
-              const nav = document.querySelector("egs-navigation") as HTMLElement | null;
-              if (nav) return nav.getAttribute("isloggedin") === "true";
-              // Fallback: look for account/avatar element rendered only when logged in
-              return !!(
-                document.querySelector('[data-testid="account-button"]') ||
-                document.querySelector("egs-user-widget")
-              );
-            },
-          });
-          if (results?.[0]?.result !== undefined) {
-            epicLoggedIn = results[0].result as boolean;
-          }
-        } catch (_) {}
-      }
-
-      if (epicLoggedIn === null) {
-        // Cookie fallback — Epic Bearer token
-        const cookies = await browser.cookies.getAll({ name: "EPIC_BEARER_TOKEN" }).catch(() => []);
-        if (cookies.length > 0) epicLoggedIn = true;
-      }
-
-      if (epicLoggedIn === null) {
-        // Fetch fallback — Epic's account API returns 401 when not logged in
-        try {
-          const resp = await fetch("https://www.epicgames.com/account/v2/ajaxCheckLogin", {
-            credentials: "include",
-          });
-          // 200 = logged in, 401/403 = not logged in
-          epicLoggedIn = resp.status === 200;
-        } catch (_) {}
-      }
-
-      // ── Save & compare Epic login state ──────────────────────────────────
-      if (epicLoggedIn !== null) {
-        const prevEpic = await getStorageItem("epicLoggedIn");
-        if (prevEpic === true && epicLoggedIn === false) {
-          sendSessionExpiredNotification('Epic');
-        }
-        await setStorageItem("epicLoggedIn", epicLoggedIn);
-      }
-
-
-      // ── Amazon Gaming ─────────────────────────────────────────────────────
-      let amazonLoggedIn: boolean | null = null;
-
-      const amazonTabs = await browser.tabs.query({ url: "https://luna.amazon.com/*" }).catch(() => []);
-      if (amazonTabs.length === 0) {
-        const amazonTabs2 = await browser.tabs.query({ url: "https://gaming.amazon.com/*" }).catch(() => []);
-        amazonTabs.push(...amazonTabs2);
-      }
-
-      if (amazonTabs.length > 0 && amazonTabs[0].id) {
-        try {
-          const results = await browser.scripting.executeScript({
-            target: { tabId: amazonTabs[0].id },
-            func: () => {
-              // Amazon Gaming is logged in when the sign-in button is absent
-              const signInBtn = document.querySelector('[data-a-target="sign-in-button"]');
-              return !signInBtn;
-            },
-          });
-          if (results?.[0]?.result !== undefined) {
-            amazonLoggedIn = results[0].result as boolean;
-          }
-        } catch (_) {}
-      }
-
-      if (amazonLoggedIn === null) {
-        // Cookie fallback — check multiple known Amazon session cookies
-        const AMAZON_COOKIE_NAMES = ["lwa-session-cookie", "session-id", "x-main", "ubid-main"];
-        for (const name of AMAZON_COOKIE_NAMES) {
-          const cookies = await browser.cookies.getAll({ name }).catch(() => []);
-          if (cookies.length > 0) { amazonLoggedIn = true; break; }
-        }
-      }
-
-      // ── Save & compare Amazon login state ────────────────────────────────
-      if (amazonLoggedIn !== null) {
-        const prevAmazon = await getStorageItem("amazonLoggedIn");
-        if (prevAmazon === true && amazonLoggedIn === false) {
-          sendSessionExpiredNotification('Amazon');
-        }
-        await setStorageItem("amazonLoggedIn", amazonLoggedIn);
-      }
-
-      logger.info('Login status refreshed', { action: 'loginCheck' });
-    } catch (e) {
-      logger.error('checkLoginStatuses failed', { action: 'loginCheck' }, e as Error);
-    }
+    // Uses the new Strategy pattern to check all platform session statuses
+    await orchestrator.checkAllLoginStatuses();
   },
+
 
 
   wait(ms: number) {
