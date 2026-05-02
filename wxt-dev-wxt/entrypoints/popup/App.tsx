@@ -1,57 +1,90 @@
-import { useEffect } from 'react';
-import './App.css';
-import {useStorage} from "@/entrypoints/hooks/useStorage.ts";
-import GamesList from "@/entrypoints/components/GamesList.tsx";
-import {ActiveTabs} from "@/entrypoints/enums/activeTabs.ts";
-import Settings from "@/entrypoints/components/Settings.tsx";
-import History from "@/entrypoints/components/History.tsx";
-import Footer from "@/entrypoints/components/Footer.tsx";
+import { useEffect, useState } from 'react';
+import { useStorage } from "@/entrypoints/hooks/useStorage.ts";
+import { TabId, ToastMessage } from "@/entrypoints/types/ui";
+import { BottomNav } from "@/entrypoints/components/BottomNav";
+import { Dashboard } from "@/entrypoints/components/Dashboard";
+import History from "@/entrypoints/components/History";
+import Settings from "@/entrypoints/components/Settings";
+import { Toast } from "@/entrypoints/components/Toast";
+import { FreeGame } from "@/entrypoints/types/freeGame";
+import { MessageRequest } from "@/entrypoints/types/messageRequest";
 
 function App() {
-    const [activeTab, setActiveTab] = useStorage<ActiveTabs>("activeTab", ActiveTabs.MAIN);
+  const [activeTab, setActiveTab] = useStorage<TabId>("activeTab", "dashboard");
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [fabLoading, setFabLoading] = useState(false);
 
-    // FIX: clearBadge was called directly in the render body, firing on EVERY re-render.
-    // Using useEffect with [] ensures it only runs once when the popup mounts.
-    useEffect(() => {
-        browser.action.setBadgeText({ text: "" });
-    }, []);
+  const [steamGames]  = useStorage<FreeGame[]>("steamGames", []);
+  const [epicGames]   = useStorage<FreeGame[]>("epicGames", []);
+  const [amazonGames] = useStorage<FreeGame[]>("amazonGames", []);
 
-    return (
-        <div className="App">
-            <div className="tabs">
-                <button onClick={() => setActiveTab(ActiveTabs.MAIN)}
-                        className={activeTab === ActiveTabs.MAIN ? 'active' : ''}>
-                    {browser.i18n.getMessage("tabSettings")}
-                </button>
-                <button onClick={() => setActiveTab(ActiveTabs.FREE_GAMES)}
-                        className={activeTab === ActiveTabs.FREE_GAMES ? 'active' : ''}>
-                    {browser.i18n.getMessage("tabFreeGames")}
-                </button>
-                <button onClick={() => setActiveTab(ActiveTabs.HISTORY)}
-                        className={activeTab === ActiveTabs.HISTORY ? 'active' : ''}>
-                    {browser.i18n.getMessage("tabHistory")}
-                </button>
-            </div>
+  const availableCount = (steamGames?.length ?? 0) + (epicGames?.length ?? 0) + (amazonGames?.length ?? 0);
 
-            {activeTab === ActiveTabs.MAIN && (
-                <Settings/>
-            )}
+  useEffect(() => {
+    browser.action.setBadgeText({ text: "" });
+  }, []);
 
-            {activeTab === ActiveTabs.FREE_GAMES && (
-                <div className="tab-content">
-                    <GamesList/>
-                </div>
-            )}
+  function handleFabClaim() {
+    if (fabLoading) return;
+    setFabLoading(true);
+    browser.runtime.sendMessage({ action: 'claim', target: 'background' } as MessageRequest);
+    setTimeout(() => setFabLoading(false), 8000);
+  }
 
-            {activeTab === ActiveTabs.HISTORY && (
-                <div className="tab-content">
-                    <History/>
-                </div>
-            )}
+  return (
+    <div className="ln-popup">
+      {/* Toast */}
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
 
-            <Footer/>
+      {/* Header */}
+      <header className="ln-header">
+        <div className="ln-header-left">
+          <div className="ln-logo-icon">🎮</div>
+          <div className="ln-logo-text">
+            Loot<span className="ln-text-gradient">Nova</span>
+          </div>
         </div>
-    );
+        <div className="ln-header-right">
+          <button className="ln-header-btn">🔔</button>
+          <button className="ln-header-btn ln-header-btn-warn">
+            ⚠️
+            <span className="ln-header-btn-dot" />
+          </button>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="ln-content">
+        {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'history' && <History />}
+        {activeTab === 'settings' && <Settings />}
+      </main>
+
+      {/* FAB */}
+      <button
+        className={`ln-fab ${fabLoading ? 'loading' : ''}`}
+        onClick={handleFabClaim}
+        disabled={fabLoading}
+        title="Reclamar todo ahora"
+      >
+        {fabLoading ? (
+          <>
+            <span className="ln-fab-spinner">⟳</span>
+            <span className="ln-fab-ring" />
+          </>
+        ) : (
+          <span>⚡</span>
+        )}
+      </button>
+
+      {/* Bottom Nav */}
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        badgeCounts={{ dashboard: availableCount, history: 0, settings: 0 }}
+      />
+    </div>
+  );
 }
 
 export default App;

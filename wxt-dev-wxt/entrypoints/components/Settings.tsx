@@ -1,146 +1,137 @@
-import { useState, useEffect, useCallback } from 'react';
 import { useStorage } from "@/entrypoints/hooks/useStorage.ts";
-import OnButton from "@/entrypoints/components/OnButton.tsx";
-import { ManualClaimBtn } from "@/entrypoints/components/ManualClaimBtn.tsx";
-import Checkbox from "@/entrypoints/components/Checkbox.tsx";
-import FrequencySelect from "@/entrypoints/components/FrequencySelect.tsx";
-import { ClaimFrequency, ClaimFrequencyMinutes } from "@/entrypoints/enums/claimFrequency.ts";
+import { ClaimFrequency } from "@/entrypoints/enums/claimFrequency.ts";
 import { MessageRequest } from "@/entrypoints/types/messageRequest.ts";
-import LoginStatus from "@/entrypoints/components/LoginStatus.tsx";
-import { getStorageItem } from "@/entrypoints/hooks/useStorage.ts";
-import { ClaimedGame } from "@/entrypoints/types/claimedGame.ts";
-import { computeTotalSavings, formatUSD } from "@/entrypoints/utils/priceService.ts";
 
-// ── Next-autoclaim countdown ──────────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-    if (ms <= 0) return "00:00:00";
-    const totalSec = Math.floor(ms / 1000);
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    return [h, m, s].map(v => String(v).padStart(2, "0")).join(":");
+function Toggle({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <div onClick={onClick} className={`ln-toggle ${active ? 'active' : ''}`}>
+      <div className="ln-toggle-knob" />
+    </div>
+  );
 }
 
-function NextClaimCountdown({ frequency }: { frequency: ClaimFrequency }) {
-    const [remaining, setRemaining] = useState<number | null>(null);
-
-    const computeRemaining = useCallback(async () => {
-        if (frequency === ClaimFrequency.BROWSER_START) { setRemaining(null); return; }
-        const lastOpened = await getStorageItem("lastOpened") as string | null;
-        if (!lastOpened) { setRemaining(null); return; }
-        const periodMs = (ClaimFrequencyMinutes[frequency] ?? 1440) * 60_000;
-        const elapsed  = Date.now() - new Date(lastOpened).getTime();
-        setRemaining(Math.max(0, periodMs - elapsed));
-    }, [frequency]);
-
-    useEffect(() => { void computeRemaining(); }, [computeRemaining]);
-
-    useEffect(() => {
-        const id = setInterval(() => {
-            setRemaining(prev => prev === null ? null : Math.max(0, prev - 1000));
-        }, 1000);
-        return () => clearInterval(id);
-    }, []);
-
-    if (remaining === null) return null;
-
-    return (
-        <div className="next-claim-row">
-            <span className="next-claim-label">{browser.i18n.getMessage("next_autoclaim_label")}</span>
-            <span className="next-claim-timer">{formatDuration(remaining)}</span>
+function SettingsGroup({ title, children }: { title?: string; children: React.ReactNode }) {
+  return (
+    <div className="ln-settings-group">
+      {title && (
+        <div className="ln-section-header">
+          <span>{title}</span>
+          <span className="ln-section-line" />
         </div>
-    );
+      )}
+      <div className="ln-settings-box">{children}</div>
+    </div>
+  );
 }
 
-// ── Hero Stats ─────────────────────────────────────────────────────────────────
-
-function HeroStats({ counter, history }: { counter: number; history: ClaimedGame[] }) {
-    const totalSavings = computeTotalSavings(history);
-    const hasSavings   = totalSavings > 0;
-
-    return (
-        <div className="hero-stats">
-            {/* Games claimed */}
-            <div className="hero-stat-item">
-                <span className="hero-stat-number">{counter}</span>
-                <span className="hero-stat-label">{browser.i18n.getMessage("gamesClaimed")}</span>
-            </div>
-
-            {/* Divider — only shown when we have savings data */}
-            {hasSavings && <div className="hero-stat-divider" />}
-
-            {/* Total savings */}
-            {hasSavings && (
-                <div className="hero-stat-item">
-                    <span className="hero-stat-number hero-stat-savings">{formatUSD(totalSavings)}</span>
-                    <span className="hero-stat-label">{browser.i18n.getMessage("stat_total_saved")}</span>
-                </div>
-            )}
-        </div>
-    );
+function SettingsItem({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
+  return (
+    <div className="ln-settings-item">
+      <div>
+        <div className="ln-settings-label">{label}</div>
+        {description && <div className="ln-settings-desc">{description}</div>}
+      </div>
+      {children}
+    </div>
+  );
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
+function getFrequencyLabel(f: ClaimFrequency) {
+  switch (f) {
+    case ClaimFrequency.BROWSER_START: return browser.i18n.getMessage("freqBrowserStart");
+    case ClaimFrequency.HOURLY: return browser.i18n.getMessage("freqHourly");
+    case ClaimFrequency.EVERY_6_HOURS: return browser.i18n.getMessage("freqEvery6Hours");
+    case ClaimFrequency.EVERY_12_HOURS: return browser.i18n.getMessage("freqEvery12Hours");
+    case ClaimFrequency.DAILY: return browser.i18n.getMessage("freqDaily");
+    default: return f;
+  }
+}
 
 function Settings() {
-    const [counter]        = useStorage<number>("counter", 0);
-    const [history]        = useStorage<ClaimedGame[]>("claimedHistory", []);
-    const [steamCheck,  setSteamCheck]  = useStorage<boolean>("steamCheck",  true);
-    const [epicCheck,   setEpicCheck]   = useStorage<boolean>("epicCheck",   true);
-    const [amazonCheck, setAmazonCheck] = useStorage<boolean>("amazonCheck", true);
-    const [claimFrequency, setClaimFrequency] = useStorage<ClaimFrequency>("claimFrequency", ClaimFrequency.DAILY);
+  const [steamCheck, setSteamCheck]   = useStorage<boolean>("steamCheck", true);
+  const [epicCheck, setEpicCheck]     = useStorage<boolean>("epicCheck", true);
+  const [amazonCheck, setAmazonCheck] = useStorage<boolean>("amazonCheck", true);
+  const [gogCheck, setGogCheck]       = useStorage<boolean>("gogCheck", false);
+  const [claimFrequency, setClaimFrequency] = useStorage<ClaimFrequency>("claimFrequency", ClaimFrequency.DAILY);
+  const [notificationsEnabled, setNotificationsEnabled] = useStorage<boolean>("notificationsEnabled", true);
+  const [sessionMonitoring, setSessionMonitoring] = useStorage<boolean>("sessionMonitoring", true);
+  const [animationsEnabled, setAnimationsEnabled] = useStorage<boolean>("animationsEnabled", true);
+  const [language, setLanguage] = useStorage<string>("language", "es");
 
-    function handleFrequencyChange(frequency: ClaimFrequency) {
-        setClaimFrequency(frequency);
-        sendMessage({ action: "updateFrequency", target: "background" });
-    }
+  function handleFrequency(f: ClaimFrequency) {
+    setClaimFrequency(f);
+    sendMessage({ action: "updateFrequency", target: "background" });
+  }
 
-    function sendMessage(request: MessageRequest) {
-        browser.runtime.sendMessage(request);
-    }
+  function sendMessage(req: MessageRequest) {
+    browser.runtime.sendMessage(req);
+  }
 
-    return (
-        <div className="tab-content">
-            {/* ── Hero Header ── */}
-            <div className="nova-hero">
-                <h1>LootNova</h1>
-                <p className="tagline">{browser.i18n.getMessage("tagline")}</p>
-                <HeroStats counter={counter} history={history ?? []} />
-                <NextClaimCountdown frequency={claimFrequency} />
-            </div>
+  return (
+    <div className="ln-fade-in">
+      <SettingsGroup title="Plataformas">
+        <SettingsItem label="🟣 Epic Games" description="Reclamar juegos gratis automáticamente">
+          <Toggle active={epicCheck} onClick={() => setEpicCheck(!epicCheck)} />
+        </SettingsItem>
+        <SettingsItem label="🟠 Amazon Prime Gaming" description="Incluye redención de claves GOG">
+          <Toggle active={amazonCheck} onClick={() => setAmazonCheck(!amazonCheck)} />
+        </SettingsItem>
+        <SettingsItem label="🔵 Steam" description="Reclamar ofertas gratuitas">
+          <Toggle active={steamCheck} onClick={() => setSteamCheck(!steamCheck)} />
+        </SettingsItem>
+        <SettingsItem label="⚪ GOG" description="Redención automática de claves">
+          <Toggle active={gogCheck} onClick={() => setGogCheck(!gogCheck)} />
+        </SettingsItem>
+      </SettingsGroup>
 
-            <OnButton/>
+      <SettingsGroup title="Auto-Claim">
+        <SettingsItem label="Frecuencia" description="Con qué frecuencia verificar nuevos juegos">
+          <select
+            value={claimFrequency}
+            onChange={e => handleFrequency(e.target.value as ClaimFrequency)}
+            className="ln-select"
+          >
+            {Object.values(ClaimFrequency).map(f => (
+              <option key={f} value={f}>{getFrequencyLabel(f)}</option>
+            ))}
+          </select>
+        </SettingsItem>
+        <SettingsItem label="🔔 Notificaciones push" description="Alertar cuando hay nuevos juegos">
+          <Toggle active={notificationsEnabled} onClick={() => setNotificationsEnabled(!notificationsEnabled)} />
+        </SettingsItem>
+        <SettingsItem label="🔐 Monitoreo de sesión" description="Verificar login cada 12 horas">
+          <Toggle active={sessionMonitoring} onClick={() => setSessionMonitoring(!sessionMonitoring)} />
+        </SettingsItem>
+      </SettingsGroup>
 
-            <div className="inputs">
-                <ManualClaimBtn/>
+      <SettingsGroup title="Apariencia">
+        <SettingsItem label="🎨 Animaciones" description="Efectos visuales y transiciones">
+          <Toggle active={animationsEnabled} onClick={() => setAnimationsEnabled(!animationsEnabled)} />
+        </SettingsItem>
+        <SettingsItem label="🌐 Idioma" description="Idioma de la interfaz">
+          <select
+            value={language}
+            onChange={e => setLanguage(e.target.value)}
+            className="ln-select"
+          >
+            <option value="es">Español</option>
+            <option value="en">English</option>
+          </select>
+        </SettingsItem>
+      </SettingsGroup>
 
-                <LoginStatus
-                    steamEnabled={steamCheck}
-                    epicEnabled={epicCheck}
-                    amazonEnabled={amazonCheck}
-                />
+      <div className="ln-info-block">
+        {browser.i18n.getMessage("infoLogin")}{' '}
+        <a href="https://store.steampowered.com/login/" target="_blank">Steam</a>,{' '}
+        <a href="https://www.epicgames.com/id/login" target="_blank">Epic</a>{' '}
+        {browser.i18n.getMessage("infoAnd")}{' '}
+        <a href="https://gaming.amazon.com" target="_blank">Amazon Prime Gaming</a>{' '}
+        {browser.i18n.getMessage("infoBeforeClaim")}
+      </div>
 
-                <FrequencySelect value={claimFrequency} onChange={handleFrequencyChange} />
-
-                <div className="checkboxes">
-                    <Checkbox name={browser.i18n.getMessage("steamPlatform")}  checked={steamCheck}  onChange={e => setSteamCheck(e.target.checked)}/>
-                    <Checkbox name={browser.i18n.getMessage("epicPlatform")}   checked={epicCheck}   onChange={e => setEpicCheck(e.target.checked)}/>
-                    <Checkbox name={browser.i18n.getMessage("amazonPlatform")} checked={amazonCheck} onChange={e => setAmazonCheck(e.target.checked)}/>
-                </div>
-            </div>
-
-            <span className="info-text">
-                {browser.i18n.getMessage("infoLogin")}{' '}
-                <a href="https://store.steampowered.com/login/" target="_blank">Steam</a>,{' '}
-                <a href="https://www.epicgames.com/id/login" target="_blank">Epic</a>{' '}
-                {browser.i18n.getMessage("infoAnd")}{' '}
-                <a href="https://gaming.amazon.com" target="_blank">Amazon Prime Gaming</a>{' '}
-                {browser.i18n.getMessage("infoBeforeClaim")}
-            </span>
-            <span className="info-text">{browser.i18n.getMessage("infoAutoClaim")}</span>
-        </div>
-    );
+      <div className="ln-version">LootNova v1.1.0 • MIT License</div>
+    </div>
+  );
 }
 
 export default Settings;
