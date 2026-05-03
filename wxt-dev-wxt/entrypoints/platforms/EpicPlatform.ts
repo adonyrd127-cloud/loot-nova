@@ -63,9 +63,8 @@ export class EpicPlatform extends BasePlatform {
 
   async checkLoginStatus(): Promise<boolean | null> {
     try {
-      // Minimal fetch to check if session cookie exists
-      const response = await fetch("https://www.epicgames.com/account/personal", { method: 'HEAD', redirect: 'manual' });
-      return response.status === 200;
+      const response = await fetch("https://www.epicgames.com/account/v2/profile/ajaxGet");
+      return response.ok;
     } catch {
       return null;
     }
