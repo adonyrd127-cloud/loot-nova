@@ -64,45 +64,24 @@ export class EpicPlatform extends BasePlatform {
 
   async checkLoginStatus(): Promise<boolean | null> {
     try {
-      const { browser } = await import('wxt/browser');
-
-      // Strategy 1: Check auth cookies by name (more reliable than domain)
-      const authCookieNames = [
-        'EPIC_BEARER_TOKEN', 
-        'EPIC_SESSION_AP', 
-        'EPIC_SSO', 
-        'EPIC_SESSION_ID',
-        'EPIC_SSO_RM'
-      ];
-
-      for (const cookieName of authCookieNames) {
-        const cookies = await browser.cookies.getAll({ name: cookieName });
-        if (cookies.length > 0 && cookies.some(c => c.value && c.value.length > 10)) {
-          return true;
-        }
-      }
-
-      // Strategy 2: Fetch check
-      try {
-        const resp = await fetch('https://www.epicgames.com/account/v2/ajaxCheckLogin', {
-          credentials: 'include',
-          signal: AbortSignal.timeout(5000),
-        });
-        if (resp.status === 200) return true;
-        if (resp.status === 401 || resp.status === 403) return false;
-      } catch { /* network error */ }
-
-      // Strategy 3: Trust content script if recent (< 24h)
+      // ÚNICA fuente confiable: el content script que corre en store.epicgames.com
+      const storedLogin = await getStorageItem('epicLoggedIn');
       const checkedAt = await getStorageItem('epicLoginCheckedAt') as string | null;
+      
+      // Si nunca se ha seteado, es desconocido
+      if (storedLogin === undefined || storedLogin === null) {
+        return null;
+      }
+      
+      // Si la data es muy vieja (> 7 días), es desconocido
       if (checkedAt) {
         const age = Date.now() - new Date(checkedAt).getTime();
-        if (age < 24 * 60 * 60 * 1000) {
-          const stored = await getStorageItem('epicLoggedIn');
-          if (stored === true) return true;
+        if (age > 7 * 24 * 60 * 60 * 1000) {
+          return null;
         }
       }
-
-      return null; // Unknown
+      
+      return storedLogin === true;
     } catch {
       return null;
     }

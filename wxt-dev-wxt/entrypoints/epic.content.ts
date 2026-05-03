@@ -134,5 +134,30 @@ export default defineContentScript({
             continueButton.click();
             await wait(getRndInteger(150, 350));
         }
+
+        // Detectar login inmediatamente al cargar
+        async function detectAndStoreLogin() {
+          const nav = document.querySelector('egs-navigation');
+          const isLoggedIn = nav?.getAttribute('isloggedin') === 'true';
+          
+          await setStorageItem("epicLoggedIn", isLoggedIn);
+          await setStorageItem("epicLoginCheckedAt", new Date().toISOString());
+        }
+
+        // Ejecutar al inicio
+        void detectAndStoreLogin();
+
+        // Epic es SPA — detectar cambios cada 5 segundos
+        let lastLoginState: boolean | null = null;
+        setInterval(async () => {
+          const nav = document.querySelector('egs-navigation');
+          const current = nav?.getAttribute('isloggedin') === 'true';
+          
+          if (current !== lastLoginState) {
+            lastLoginState = current;
+            await setStorageItem("epicLoggedIn", current);
+            await setStorageItem("epicLoginCheckedAt", new Date().toISOString());
+          }
+        }, 5000);
     },
 });

@@ -61,9 +61,10 @@ export default defineBackground({
 
   async handleStartup() {
     // Check login status immediately so the popup shows accurate indicators
-    void this.checkLoginStatuses();
+    await this.checkLoginStatuses();
     // Run a silent session check on startup too
-    void this.silentSessionCheck();
+    await this.silentSessionCheck();
+    
     const result = await getStorageItems(["active", "claimFrequency"]);
     if (!result?.active) return;
     const frequency = result.claimFrequency || ClaimFrequency.DAILY;
@@ -174,11 +175,6 @@ export default defineBackground({
           const b = body as { isLoggedIn?: boolean };
           return b?.isLoggedIn === true;
         },
-      },
-      {
-        name: 'Epic',
-        url: 'https://www.epicgames.com/account/v2/profile/ajaxGet',
-        storageKey: 'epicLoggedIn',
       },
     ];
 
