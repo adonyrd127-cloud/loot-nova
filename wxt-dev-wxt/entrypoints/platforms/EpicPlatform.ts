@@ -63,7 +63,9 @@ export class EpicPlatform extends BasePlatform {
 
   async checkLoginStatus(): Promise<boolean | null> {
     try {
-      const response = await fetch("https://www.epicgames.com/account/v2/profile/ajaxGet");
+      const response = await fetch("https://www.epicgames.com/account/v2/profile/ajaxGet", {
+        credentials: 'include'
+      });
       return response.ok;
     } catch {
       return null;

@@ -45,7 +45,11 @@ export class SteamPlatform extends BasePlatform {
 
   async checkLoginStatus(): Promise<boolean | null> {
     try {
-      const response = await fetch("https://store.steampowered.com/account/", { method: 'HEAD', redirect: 'manual' });
+      const response = await fetch("https://store.steampowered.com/account/", { 
+        method: 'HEAD', 
+        redirect: 'manual',
+        credentials: 'include'
+      });
       return response.status === 200;
     } catch {
       return null;
@@ -57,7 +61,7 @@ export class SteamPlatform extends BasePlatform {
   }
   async claimGame(game: FreeGame): Promise<boolean> {
     try {
-      const htmlResp = await fetch(game.link);
+      const htmlResp = await fetch(game.link, { credentials: 'include' });
       const htmlText = await htmlResp.text();
       const root = parse(htmlText);
 
@@ -90,6 +94,7 @@ export class SteamPlatform extends BasePlatform {
       const claimResp = await fetch('https://store.steampowered.com/checkout/addfreelicense', {
         method: 'POST',
         body: formData,
+        credentials: 'include'
       });
 
       if (claimResp.ok) {

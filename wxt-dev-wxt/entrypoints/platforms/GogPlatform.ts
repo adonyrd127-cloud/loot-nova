@@ -42,7 +42,10 @@ export class GogPlatform extends BasePlatform {
 
   async checkLoginStatus(): Promise<boolean | null> {
     try {
-      const resp = await fetch('https://www.gog.com/userData.json', { method: 'GET' });
+      const resp = await fetch('https://www.gog.com/userData.json', { 
+        method: 'GET',
+        credentials: 'include'
+      });
       if (resp.ok) {
         const json = await resp.json();
         return json.isLoggedIn === true;
@@ -65,7 +68,8 @@ export class GogPlatform extends BasePlatform {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        credentials: 'include'
       });
       if (claimResp.ok) {
         logger.info(`Silently claimed GOG game: ${game.title}`, { platform: 'gog' });
