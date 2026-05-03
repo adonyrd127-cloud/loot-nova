@@ -2,6 +2,7 @@ import { BasePlatform } from './BasePlatform';
 import { EpicPlatform } from './EpicPlatform';
 import { AmazonPlatform } from './AmazonPlatform';
 import { SteamPlatform } from './SteamPlatform';
+import { GogPlatform } from './GogPlatform';
 import { PlatformId } from './BasePlatform';
 
 export class PlatformRegistry {
@@ -11,6 +12,7 @@ export class PlatformRegistry {
     this.register(new EpicPlatform());
     this.register(new AmazonPlatform());
     this.register(new SteamPlatform());
+    this.register(new GogPlatform());
   }
 
   register(platform: BasePlatform) {

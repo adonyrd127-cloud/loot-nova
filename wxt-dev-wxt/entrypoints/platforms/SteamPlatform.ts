@@ -55,4 +55,51 @@ export class SteamPlatform extends BasePlatform {
   getLoginUrl(): string {
     return "https://store.steampowered.com/login/";
   }
+  async claimGame(game: FreeGame): Promise<boolean> {
+    try {
+      const htmlResp = await fetch(game.link);
+      const htmlText = await htmlResp.text();
+      const root = parse(htmlText);
+
+      const sessionMatch = htmlText.match(/g_sessionID\s*=\s*"([^"]+)"/);
+      const sessionId = sessionMatch ? sessionMatch[1] : null;
+
+      if (!sessionId) {
+        logger.warn("Could not find Steam session ID, falling back to tab", { platform: 'steam' });
+        return super.claimGame(game);
+      }
+
+      const addLicenseMatch = htmlText.match(/AddFreeLicense\s*\(\s*(\d+)\s*(,\s*'.*?')?\s*\)/);
+      let subId = addLicenseMatch ? addLicenseMatch[1] : null;
+
+      if (!subId) {
+        const subIdInput = root.querySelector('input[name="subid"]');
+        if (subIdInput) subId = subIdInput.getAttribute('value') || null;
+      }
+
+      if (!subId) {
+        logger.warn("Could not find subid/appid for silent claiming, falling back to tab", { platform: 'steam' });
+        return super.claimGame(game);
+      }
+
+      const formData = new FormData();
+      formData.append('action', 'add_to_cart');
+      formData.append('sessionid', sessionId);
+      formData.append('subid', subId);
+
+      const claimResp = await fetch('https://store.steampowered.com/checkout/addfreelicense', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (claimResp.ok) {
+        logger.info(`Silently claimed Steam game: ${game.title}`, { platform: 'steam' });
+        return true;
+      }
+      return super.claimGame(game);
+    } catch (e) {
+      logger.error("Error during silent claim, falling back to tab", { platform: 'steam' }, e as Error);
+      return super.claimGame(game);
+    }
+  }
 }
