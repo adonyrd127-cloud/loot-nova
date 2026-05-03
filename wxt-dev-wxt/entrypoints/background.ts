@@ -285,6 +285,20 @@ export default defineBackground({
           continue;
         }
 
+        // ── Silent Claiming Intercept ──
+        if (game.platform === Platforms.Steam || game.platform === Platforms.Gog) {
+          const platformId = game.platform === Platforms.Steam ? 'steam' : 'gog';
+          const platformInstance = registry.get(platformId);
+          if (platformInstance) {
+            const success = await platformInstance.claimGame(game);
+            if (success) {
+              sendClaimNotification(game.title, game.platform);
+              await this.addToHistory(game);
+              continue; // Skip opening any tabs!
+            }
+          }
+        }
+
         const tab = await browser.tabs.create({ url: game.link, active: false });
         if (!tab?.id) continue;
         await this.waitForTabToLoad(tab.id);
