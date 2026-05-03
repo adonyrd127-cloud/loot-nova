@@ -239,18 +239,14 @@ export default defineBackground({
       promises.push(
         this.getEpicGamesList(true).catch(async (e: unknown) => {
           logger.error('getEpicGamesList failed', { platform: 'epic' }, e as Error);
-          await this.openTabAndSendActionToContent(EPIC_GAMES_URL, "getFreeGames");
         })
       );
     }
 
     if (steamCheck) {
       promises.push(
-        this.getSteamGamesList(true).then(async (found) => {
-          if (!found) await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
-        }).catch(async (e: unknown) => {
+        this.getSteamGamesList(true).catch(async (e: unknown) => {
           logger.error('getSteamGamesList failed', { platform: 'steam' }, e as Error);
-          await this.openTabAndSendActionToContent(STEAM_GAMES_URL, "getFreeGames");
         })
       );
     }
