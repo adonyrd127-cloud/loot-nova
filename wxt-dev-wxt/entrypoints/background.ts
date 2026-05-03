@@ -176,17 +176,6 @@ export default defineBackground({
         url: 'https://www.epicgames.com/account/v2/profile/ajaxGet',
         storageKey: 'epicLoggedIn',
       },
-      {
-        name: 'Amazon',
-        url: 'https://gaming.amazon.com/player/a/profile',
-        storageKey: 'amazonLoggedIn',
-        // Amazon may redirect (200 with login page) instead of proper 401
-        isLoggedIn: (body: unknown) => {
-          if (typeof body !== 'object' || body === null) return false;
-          const b = body as Record<string, unknown>;
-          return !!(b.playerId || b.userId || b.customerId);
-        },
-      },
     ];
 
     for (const platform of platforms) {
