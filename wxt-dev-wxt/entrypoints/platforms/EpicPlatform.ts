@@ -5,6 +5,7 @@ import { EpicSearchResponseSchema } from '@/entrypoints/types/validators.ts';
 import { EpicElement } from '@/entrypoints/types/epicGame.ts';
 import { logger } from '@/entrypoints/utils/logger.ts';
 import { sanitizeGameTitle, sanitizeUrl } from '@/entrypoints/utils/sanitize.ts';
+import { getStorageItem } from '@/entrypoints/hooks/useStorage.ts';
 
 export class EpicPlatform extends BasePlatform {
   readonly name = 'Epic Games';
@@ -64,11 +65,44 @@ export class EpicPlatform extends BasePlatform {
   async checkLoginStatus(): Promise<boolean | null> {
     try {
       const { browser } = await import('wxt/browser');
-      const cookies = await browser.cookies.getAll({ domain: 'epicgames.com' });
-      // Epic uses EPIC_BEARER_TOKEN, EPIC_SESSION_AP, or EPIC_SSO when logged in.
-      // If any of these exist, the user has an active session.
-      const authCookies = ['EPIC_BEARER_TOKEN', 'EPIC_SESSION_AP', 'EPIC_SSO', 'EPIC_SESSION_ID'];
-      return cookies.some(c => authCookies.includes(c.name));
+
+      // Strategy 1: Check auth cookies by name (more reliable than domain)
+      const authCookieNames = [
+        'EPIC_BEARER_TOKEN', 
+        'EPIC_SESSION_AP', 
+        'EPIC_SSO', 
+        'EPIC_SESSION_ID',
+        'EPIC_SSO_RM'
+      ];
+
+      for (const cookieName of authCookieNames) {
+        const cookies = await browser.cookies.getAll({ name: cookieName });
+        if (cookies.length > 0 && cookies.some(c => c.value && c.value.length > 10)) {
+          return true;
+        }
+      }
+
+      // Strategy 2: Fetch check
+      try {
+        const resp = await fetch('https://www.epicgames.com/account/v2/ajaxCheckLogin', {
+          credentials: 'include',
+          signal: AbortSignal.timeout(5000),
+        });
+        if (resp.status === 200) return true;
+        if (resp.status === 401 || resp.status === 403) return false;
+      } catch { /* network error */ }
+
+      // Strategy 3: Trust content script if recent (< 24h)
+      const checkedAt = await getStorageItem('epicLoginCheckedAt') as string | null;
+      if (checkedAt) {
+        const age = Date.now() - new Date(checkedAt).getTime();
+        if (age < 24 * 60 * 60 * 1000) {
+          const stored = await getStorageItem('epicLoggedIn');
+          if (stored === true) return true;
+        }
+      }
+
+      return null; // Unknown
     } catch {
       return null;
     }

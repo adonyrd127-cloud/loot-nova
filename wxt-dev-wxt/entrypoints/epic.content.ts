@@ -46,6 +46,7 @@ export default defineContentScript({
 
             // Persist login status so the popup's LoginStatus component can render it (Issue #13)
             await setStorageItem("epicLoggedIn", isLoggedIn);
+            await setStorageItem("epicLoginCheckedAt", new Date().toISOString());
 
             // NOTE: The Epic API (called from background.ts) is the primary source of free-game data
             // and is far more reliable than DOM scraping (which uses volatile CSS class names that

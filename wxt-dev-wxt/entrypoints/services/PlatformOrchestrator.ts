@@ -42,11 +42,16 @@ export class PlatformOrchestrator {
     for (let i = 0; i < platforms.length; i++) {
       const platform = platforms[i];
       const result = results[i];
+
       if (result.status === 'fulfilled') {
-        if (result.value !== null) {
-          await setStorageItem(`${platform.id}LoggedIn`, result.value);
+        const status = result.value;
+        // CRITICAL: Only update with definitive answers (true/false)
+        // null means "couldn't determine" — keep previous value
+        if (status !== null) {
+          await setStorageItem(`${platform.id}LoggedIn`, status);
         }
       }
+      // On rejection, don't touch storage
     }
   }
 }
