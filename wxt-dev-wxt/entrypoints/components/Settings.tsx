@@ -108,16 +108,6 @@ function Settings() {
         <SettingsItem label="🎨 Animaciones" description="Efectos visuales y transiciones">
           <Toggle active={animationsEnabled} onClick={() => setAnimationsEnabled(!animationsEnabled)} />
         </SettingsItem>
-        <SettingsItem label="🌐 Idioma" description="Idioma de la interfaz">
-          <select
-            value={language}
-            onChange={e => setLanguage(e.target.value)}
-            className="ln-select"
-          >
-            <option value="es">Español</option>
-            <option value="en">English</option>
-          </select>
-        </SettingsItem>
       </SettingsGroup>
 
       <div className="ln-info-block">

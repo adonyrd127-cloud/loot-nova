@@ -18,6 +18,13 @@ function App() {
   const [epicGames]   = useStorage<FreeGame[]>("epicGames", []);
   const [amazonGames] = useStorage<FreeGame[]>("amazonGames", []);
 
+  // Login states
+  const [steamLoggedIn]  = useStorage<boolean | null>("steamLoggedIn", null);
+  const [epicLoggedIn]   = useStorage<boolean | null>("epicLoggedIn", null);
+  const [amazonLoggedIn] = useStorage<boolean | null>("amazonLoggedIn", null);
+
+  const hasExpiredSession = steamLoggedIn === false || epicLoggedIn === false || amazonLoggedIn === false;
+
   const availableCount = (steamGames?.length ?? 0) + (epicGames?.length ?? 0) + (amazonGames?.length ?? 0);
 
   useEffect(() => {
@@ -45,11 +52,16 @@ function App() {
           </div>
         </div>
         <div className="ln-header-right">
-          <button className="ln-header-btn">🔔</button>
-          <button className="ln-header-btn ln-header-btn-warn">
-            ⚠️
-            <span className="ln-header-btn-dot" />
-          </button>
+          {hasExpiredSession && (
+            <button 
+              className="ln-header-btn ln-header-btn-warn"
+              onClick={() => setActiveTab('dashboard')}
+              title="¡Sesión expirada! Revisa el Dashboard."
+            >
+              ⚠️
+              <span className="ln-header-btn-dot" />
+            </button>
+          )}
         </div>
       </header>
 
