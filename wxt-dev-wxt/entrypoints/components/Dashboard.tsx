@@ -22,6 +22,7 @@ export function Dashboard() {
   const [steamGames]  = useStorage<FreeGame[]>("steamGames", []);
   const [epicGames]   = useStorage<FreeGame[]>("epicGames", []);
   const [amazonGames] = useStorage<FreeGame[]>("amazonGames", []);
+  const [gogGames]    = useStorage<FreeGame[]>("gogGames", []);
   const [futureGames] = useStorage<FreeGame[]>("futureGames", []);
   const [counter]     = useStorage<number>("counter", 0);
   const [history]     = useStorage<ClaimedGame[]>("claimedHistory", []);
@@ -32,9 +33,11 @@ export function Dashboard() {
   const [steamLoggedIn]  = useStorage<boolean | null>("steamLoggedIn", null);
   const [epicLoggedIn]   = useStorage<boolean | null>("epicLoggedIn", null);
   const [amazonLoggedIn] = useStorage<boolean | null>("amazonLoggedIn", null);
+  const [gogLoggedIn]    = useStorage<boolean | null>("gogLoggedIn", null);
   const [steamCheck]  = useStorage<boolean>("steamCheck", true);
   const [epicCheck]   = useStorage<boolean>("epicCheck", true);
   const [amazonCheck] = useStorage<boolean>("amazonCheck", true);
+  const [gogCheck]    = useStorage<boolean>("gogCheck", false);
 
   // Countdown
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -59,13 +62,14 @@ export function Dashboard() {
   }, []);
 
   const totalSavings = computeTotalSavings(history ?? []);
-  const currentGames = [...(steamGames ?? []), ...(epicGames ?? []), ...(amazonGames ?? [])];
+  const currentGames = [...(steamGames ?? []), ...(epicGames ?? []), ...(amazonGames ?? []), ...(gogGames ?? [])];
   const allGames = showFutureGames ? [...currentGames, ...(futureGames ?? [])] : currentGames;
 
   const platforms = [
     { platform: Platforms.Epic, name: 'Epic Games', connected: epicLoggedIn === true, gamesAvailable: epicGames?.length ?? 0, sessionExpired: epicLoggedIn === false, enabled: epicCheck },
     { platform: Platforms.Amazon, name: 'Prime Gaming', connected: amazonLoggedIn === true, gamesAvailable: amazonGames?.length ?? 0, sessionExpired: amazonLoggedIn === false, enabled: amazonCheck },
     { platform: Platforms.Steam, name: 'Steam', connected: steamLoggedIn === true, gamesAvailable: steamGames?.length ?? 0, sessionExpired: steamLoggedIn === false, enabled: steamCheck },
+    { platform: Platforms.Gog, name: 'GOG', connected: gogLoggedIn === true, gamesAvailable: gogGames?.length ?? 0, sessionExpired: gogLoggedIn === false, enabled: gogCheck },
   ].filter(p => p.enabled);
 
   return (

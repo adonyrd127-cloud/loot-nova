@@ -168,8 +168,12 @@ export default defineBackground({
     const platforms: PlatformCheck[] = [
       {
         name: 'GOG',
-        url: 'https://auth.gog.com/userData.json',
+        url: 'https://www.gog.com/userData.json',
         storageKey: 'gogLoggedIn',
+        isLoggedIn: (body: unknown) => {
+          const b = body as { isLoggedIn?: boolean };
+          return b?.isLoggedIn === true;
+        },
       },
       {
         name: 'Epic',
@@ -219,9 +223,9 @@ export default defineBackground({
   },
 
   async getFreeGamesList() {
-    const { steamCheck, epicCheck, amazonCheck } = await getStorageItems(["steamCheck", "epicCheck", "amazonCheck"]);
+    const { steamCheck, epicCheck, amazonCheck, gogCheck } = await getStorageItems(["steamCheck", "epicCheck", "amazonCheck", "gogCheck"]);
 
-    // ── Parallel fetching — Epic + Steam run concurrently (~2x faster) ──
+    // ── Parallel fetching — Epic + Steam + GOG run concurrently (~2x faster) ──
     const promises: Promise<void>[] = [];
 
     if (epicCheck) {
@@ -240,7 +244,33 @@ export default defineBackground({
       );
     }
 
-    // Run Epic + Steam in parallel
+    if (gogCheck) {
+      promises.push(
+        (async () => {
+          try {
+            const gogPlatform = registry.get('gog');
+            if (gogPlatform) {
+              const games = await gogPlatform.fetchFreeGames();
+              if (games && games.length > 0) {
+                // Check if already claimed/known
+                const currFreeGames: FreeGame[] = (await getStorageItem('gogGames')) || [];
+                const newGames = games.filter(game => !currFreeGames.some(g => g?.title === game?.title));
+                
+                if (newGames.length > 0) {
+                  await setStorageItem('gogGames', newGames);
+                  sendNewGamesNotification(newGames.length);
+                  await this.claimGames(newGames);
+                }
+              }
+            }
+          } catch (e) {
+            logger.error('getGogGamesList failed', { platform: 'gog' }, e as Error);
+          }
+        })()
+      );
+    }
+
+    // Run in parallel
     await Promise.allSettled(promises);
 
     // Amazon has no public API — always use content script (sequential, needs its own tab)
@@ -579,6 +609,7 @@ export default defineBackground({
     await setStorageItem("futureGames", []);
     await setStorageItem("steamGames", []);
     await setStorageItem("amazonGames", []);
+    await setStorageItem("gogGames", []);
   },
 
   async setBadgeText(text: string) {
