@@ -2,7 +2,7 @@
   "name": "lootnova",
   "description": "Automatically claim free games from Epic Games, Steam and Amazon Prime Gaming",
   "private": false,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "scripts": {
     "dev": "wxt",

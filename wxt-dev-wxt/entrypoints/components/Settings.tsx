@@ -119,7 +119,7 @@ function Settings() {
         {browser.i18n.getMessage("infoBeforeClaim")}
       </div>
 
-      <div className="ln-version">LootNova v1.1.0 • MIT License</div>
+      <div className="ln-version">LootNova v1.1.1 • MIT License</div>
     </div>
   );
 }
