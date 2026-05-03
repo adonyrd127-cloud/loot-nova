@@ -63,10 +63,12 @@ export class EpicPlatform extends BasePlatform {
 
   async checkLoginStatus(): Promise<boolean | null> {
     try {
-      const response = await fetch("https://www.epicgames.com/account/v2/profile/ajaxGet", {
-        credentials: 'include'
-      });
-      return response.ok;
+      const { browser } = await import('wxt/browser');
+      const cookies = await browser.cookies.getAll({ domain: 'epicgames.com' });
+      // Epic uses EPIC_BEARER_TOKEN, EPIC_SESSION_AP, or EPIC_SSO when logged in.
+      // If any of these exist, the user has an active session.
+      const authCookies = ['EPIC_BEARER_TOKEN', 'EPIC_SESSION_AP', 'EPIC_SSO', 'EPIC_SESSION_ID'];
+      return cookies.some(c => authCookies.includes(c.name));
     } catch {
       return null;
     }
