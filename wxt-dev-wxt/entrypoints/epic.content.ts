@@ -80,7 +80,7 @@ export default defineContentScript({
                     gamesArr.push({
                         link: sanitizeUrl(freeGame.href ?? ''),
                         img: freeGame.getElementsByTagName('img')[0]?.dataset.image ?? '',
-                        title: sanitizeGameTitle(freeGame.getElementsByTagName('h6')[0]?.innerHTML ?? ''),
+                        title: sanitizeGameTitle(freeGame.getElementsByTagName('h6')[0]?.textContent?.trim() ?? ''),
                         platform: Platforms.Epic,
                     });
                 });

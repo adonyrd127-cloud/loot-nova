@@ -47,7 +47,7 @@ export default defineContentScript({
                 const newFreeGame = {
                     link: sanitizeUrl(freeGame.href ?? ''),
                     img: sanitizeUrl(freeGame.getElementsByTagName('img')[0]?.src ?? ''),
-                    title: sanitizeGameTitle(freeGame.querySelector('span.title')?.innerHTML ?? ''),
+                    title: sanitizeGameTitle(freeGame.querySelector('span.title')?.textContent?.trim() ?? ''),
                     platform: Platforms.Steam
                 };
                 gamesArr.push(newFreeGame);
@@ -111,7 +111,7 @@ export default defineContentScript({
         function isCurrentGameFree(el: { querySelector: (arg0: string) => any; }): boolean {
             let gamePrice = el?.querySelector('div.game_purchase_action_bg');
             // Check multiple indicators of a free game for robustness
-            const pct = gamePrice?.querySelector('div.discount_pct')?.innerHTML;
+            const pct = gamePrice?.querySelector('div.discount_pct')?.textContent?.trim();
             const priceText = gamePrice?.querySelector('div.game_purchase_price')?.textContent?.toLowerCase() ?? '';
             return pct === '-100%' || priceText.includes('free') || priceText.includes('free to play');
         }
