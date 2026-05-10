@@ -250,7 +250,8 @@ export default defineBackground({
               if (games && games.length > 0) {
                 // Check if already claimed/known
                 const currFreeGames: FreeGame[] = (await getStorageItem('gogGames')) || [];
-                const newGames = games.filter(game => !currFreeGames.some(g => g?.title === game?.title));
+                const currTitles = new Set(currFreeGames.map(g => g?.title));
+                const newGames = games.filter(game => !currTitles.has(game?.title));
                 
                 if (newGames.length > 0) {
                   await setStorageItem('gogGames', newGames);
@@ -339,8 +340,8 @@ export default defineBackground({
     try {
       const history: ClaimedGame[] = (await getStorageItem("claimedHistory")) ?? [];
       // Avoid duplicates
-      const alreadySaved = history.some(h => h.title === game.title && h.platform === game.platform);
-      if (alreadySaved) return;
+      const historySet = new Set(history.map(h => `${h.title}|${h.platform}`));
+      if (historySet.has(`${game.title}|${game.platform}`)) return;
 
       // Fetch retail price silently — never blocks saving if it fails
       const retailPrice = await fetchRetailPrice(game.title).catch(() => null) ?? undefined;
@@ -516,9 +517,8 @@ export default defineBackground({
     );
 
     const currFreeGames: FreeGame[] = (await getStorageItem("epicGames")) || [];
-    const newGames = freeGames.filter((game) =>
-        !currFreeGames.some((g) => g?.title === game?.title)
-    );
+    const currTitles = new Set(currFreeGames.map(g => g?.title));
+    const newGames = freeGames.filter((game) => !currTitles.has(game?.title));
 
     if (newGames.length > 0) {
       const formattedNewGames = newGames.map(g => this.formatEpicFreeGame(g, false));
@@ -590,9 +590,8 @@ export default defineBackground({
     }
 
     const currFreeGames: FreeGame[] = (await getStorageItem("steamGames")) || [];
-    const newGames: FreeGame[] = gamesArr.filter(game =>
-        !currFreeGames.some(g => g?.title === game?.title)
-    );
+    const currTitles = new Set(currFreeGames.map(g => g?.title));
+    const newGames: FreeGame[] = gamesArr.filter(game => !currTitles.has(game?.title));
     if (newGames.length === 0) return false;
     await setStorageItem('steamGames', newGames);
     sendNewGamesNotification(newGames.length);
