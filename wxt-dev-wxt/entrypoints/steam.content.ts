@@ -113,7 +113,15 @@ export default defineContentScript({
             // Check multiple indicators of a free game for robustness
             const pct = gamePrice?.querySelector('div.discount_pct')?.textContent?.trim();
             const priceText = gamePrice?.querySelector('div.game_purchase_price')?.textContent?.toLowerCase() ?? '';
-            return pct === '-100%' || priceText.includes('free') || priceText.includes('free to play');
+            const finalPriceText = gamePrice?.querySelector('div.discount_final_price')?.textContent?.trim() ?? '';
+            return pct === '-100%'
+                || priceText.includes('free')
+                || priceText.includes('free to play')
+                || priceText.includes('gratis')
+                || priceText.includes('$0.00')
+                || finalPriceText.includes('$0.00')
+                || finalPriceText.toLowerCase().includes('free')
+                || finalPriceText.toLowerCase().includes('gratis');
         }
     },
 });
