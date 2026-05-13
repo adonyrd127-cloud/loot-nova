@@ -88,7 +88,12 @@ export default defineBackground({
         await this.getFreeGamesAndSetOpenedFlag(today);
         return;
       }
-      if (frequency === ClaimFrequency.DAILY || frequency === ClaimFrequency.BROWSER_START) {
+      // BROWSER_START: always claim on every startup, no time check
+      if (frequency === ClaimFrequency.BROWSER_START) {
+        await this.getFreeGamesAndSetOpenedFlag(today);
+        return;
+      }
+      if (frequency === ClaimFrequency.DAILY) {
         if (this.areDatesDifferent(lastOpened, today)) {
           await this.getFreeGamesAndSetOpenedFlag(today);
         }

@@ -14,6 +14,7 @@ export default defineConfig({
     host_permissions: [
       // Steam
       'https://store.steampowered.com/*',
+      'https://checkout.steampowered.com/*',
       // Epic (direct API call from background)
       'https://store-site-backend-static-ipv4.ak.epicgames.com/*',
       // Amazon Gaming (old domain — now redirects to luna.amazon.com)
