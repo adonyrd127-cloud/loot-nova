@@ -44,7 +44,7 @@ export default defineContentScript({
             // Store login status so popup can show an indicator
             await setStorageItem("steamLoggedIn", isLoggedIn);
 
-            let gamesArr: FreeGame[] = [];
+            const gamesArr: FreeGame[] = [];
             freeGames?.forEach((freeGame) => {
                 const newFreeGame = {
                     link: sanitizeUrl(freeGame.href ?? ''),
@@ -127,7 +127,7 @@ export default defineContentScript({
         }
 
         function isCurrentGameFree(el: { querySelector: (arg0: string) => any; }): boolean {
-            let gamePrice = el?.querySelector('div.game_purchase_action_bg');
+            const gamePrice = el?.querySelector('div.game_purchase_action_bg');
             // Check multiple indicators of a free game for robustness
             const pct = gamePrice?.querySelector('div.discount_pct')?.textContent?.trim();
             const priceText = gamePrice?.querySelector('div.game_purchase_price')?.textContent?.toLowerCase() ?? '';

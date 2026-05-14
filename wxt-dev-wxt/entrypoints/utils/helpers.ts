@@ -11,11 +11,9 @@ export function isVisible(el: HTMLElement) {
 
 export async function waitForElement(document: Document | HTMLElement, selector: string, timeout = 500, maxRetry = 10): Promise<HTMLElement | null> {
     let retry = 0;
-    let el;
-    let visible = false;
     while (retry < maxRetry) {
-            el = document.querySelector(selector) as HTMLElement;
-            visible = isVisible(el);
+        const el = document.querySelector(selector) as HTMLElement;
+        const visible = isVisible(el);
         if (el && visible) {
             return el;
         }
@@ -27,12 +25,9 @@ export async function waitForElement(document: Document | HTMLElement, selector:
 
 export async function waitForAllElements(document: Document, selector: string, timeout = 500, maxRetry = 10): Promise<NodeListOf<HTMLElement> | null> {
     let retry = 0;
-    let el;
-    let visible = false;
     while (retry < maxRetry) {
-            el = document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
-            // FIX: check el.length > 0 so an empty NodeList doesn't return immediately as "truthy"
-            visible = el.length > 0 && Array.from(el).every((e: HTMLElement) => isVisible(e));
+        const el = document.querySelectorAll(selector) as NodeListOf<HTMLElement>;
+        const visible = el.length > 0 && Array.from(el).every((e: HTMLElement) => isVisible(e));
         if (el && visible) {
             return el;
         }
