@@ -6,7 +6,13 @@
  *   logger.error('Claim failed', { platform: 'amazon', gameId: '123' }, error);
  */
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export enum LogLevel {
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3,
+  NONE = 4,
+}
 
 interface LogContext {
   platform?: string;
@@ -15,8 +21,13 @@ interface LogContext {
   [key: string]: unknown;
 }
 
-class Logger {
+export class Logger {
   private prefix = '[LootNova]';
+  public level: LogLevel;
+
+  constructor() {
+    this.level = import.meta.env.PROD ? LogLevel.WARN : LogLevel.DEBUG;
+  }
 
   private format(ctx?: LogContext): string {
     if (!ctx || Object.keys(ctx).length === 0) return '';
@@ -24,18 +35,22 @@ class Logger {
   }
 
   debug(msg: string, ctx?: LogContext) {
+    if (this.level > LogLevel.DEBUG) return;
     console.log(`${this.prefix}${this.format(ctx)} ${msg}`);
   }
 
   info(msg: string, ctx?: LogContext) {
+    if (this.level > LogLevel.INFO) return;
     console.log(`${this.prefix}${this.format(ctx)} ${msg}`);
   }
 
   warn(msg: string, ctx?: LogContext) {
+    if (this.level > LogLevel.WARN) return;
     console.warn(`${this.prefix}${this.format(ctx)} ${msg}`);
   }
 
   error(msg: string, ctx?: LogContext, err?: Error | unknown) {
+    if (this.level > LogLevel.ERROR) return;
     console.error(`${this.prefix}${this.format(ctx)} ${msg}`, err ?? '');
   }
 }
