@@ -2,7 +2,7 @@ import { BasePlatform } from './BasePlatform';
 import { FreeGame } from '@/entrypoints/types/freeGame.ts';
 import { Platforms } from '@/entrypoints/enums/platforms.ts';
 import { logger } from '@/entrypoints/utils/logger.ts';
-import { sanitizeGameTitle, sanitizeUrl } from '@/entrypoints/utils/sanitize.ts';
+import { sanitizeGameTitle } from '@/entrypoints/utils/sanitize.ts';
 import { parse } from 'node-html-parser';
 
 export class GogPlatform extends BasePlatform {
