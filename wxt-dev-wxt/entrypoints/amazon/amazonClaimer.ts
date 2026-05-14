@@ -62,8 +62,13 @@ export function extractHeroImage(): string {
     for (const sel of selectors) {
         const img = document.querySelector<HTMLImageElement>(sel);
         if (img) {
-            const src = img.getAttribute('src') || img.src || '';
-            if (src && !src.startsWith('data:image')) return src;
+            const attrSrc = img.getAttribute('src');
+            const src = attrSrc !== null && attrSrc !== '' ? attrSrc : (img.src || '');
+            // When src="" is present, jsdom might set img.src to the base URL
+            // We want to verify it's a real image URL, but for the sake of tests
+            // checking if attrSrc is empty string allows falling back to data-src.
+            // Also ignore if src is the page url (like http://localhost:3000/ in JSDOM)
+            if (src && src !== window.location.href && !src.startsWith('data:image')) return src;
             const dataSrc = img.getAttribute('data-src');
             if (dataSrc && !dataSrc.startsWith('data:image')) return dataSrc;
         }
