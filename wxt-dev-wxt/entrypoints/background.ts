@@ -15,6 +15,7 @@ import {sanitizeGameTitle, sanitizeUrl} from "@/entrypoints/utils/sanitize.ts";
 import {EpicSearchResponseSchema} from "@/entrypoints/types/validators.ts";
 import {PlatformOrchestrator} from "@/entrypoints/services/PlatformOrchestrator.ts";
 import {registry} from "@/entrypoints/platforms/PlatformRegistry.ts";
+import pLimit from "p-limit";
 
 const orchestrator = new PlatformOrchestrator(registry);
 
@@ -294,12 +295,14 @@ export default defineBackground({
 
   async claimGames(games: FreeGame[]) {
     void this.setBadgeText(games.length.toString());
-    for (const game of games) {
+    const limit = pLimit(3);
+
+    await Promise.all(games.map(game => limit(async () => {
       try {
         // ── Security: validate URL before opening tab ──
         if (!validateGameUrl(game.link, game.platform)) {
           logger.error('Blocked claim for invalid URL', { platform: game.platform, gameId: game.title });
-          continue;
+          return;
         }
 
         // ── Silent Claiming Intercept ──
@@ -311,13 +314,13 @@ export default defineBackground({
             if (success) {
               sendClaimNotification(game.title, game.platform);
               await this.addToHistory(game);
-              continue; // Skip opening any tabs!
+              return; // Skip opening any tabs!
             }
           }
         }
 
         const tab = await browser.tabs.create({ url: game.link, active: false });
-        if (!tab?.id) continue;
+        if (!tab?.id) return;
         await this.waitForTabToLoad(tab.id);
         await browser.tabs.sendMessage(tab.id, { target: 'content', action: 'claimGames' });
 
@@ -326,7 +329,7 @@ export default defineBackground({
         const isAmazon  = game.platform === 'Amazon Gaming';
         const timeoutMs = isAmazon ? 30_000 : 15_000;
 
-        await this.waitForContentResponse('claimComplete', timeoutMs);
+        await this.waitForContentResponse('claimComplete', timeoutMs, tab.id);
 
         // Close the tab so the user isn't flooded with open tabs
         try { await browser.tabs.remove(tab.id); } catch (_) {}
@@ -338,7 +341,7 @@ export default defineBackground({
       } catch (e) {
         logger.error(`Failed to claim "${game.title}"`, { platform: game.platform }, e as Error);
       }
-    }
+    })));
   },
 
   async addToHistory(game: FreeGame) {
@@ -621,12 +624,18 @@ export default defineBackground({
    * Resolves when the message arrives, or after `timeoutMs` (whichever comes first).
    * This replaces blind `wait(N)` timers — the content script actively signals completion.
    */
-  waitForContentResponse(actionName: string, timeoutMs: number): Promise<void> {
+  waitForContentResponse(actionName: string, timeoutMs: number, expectedTabId?: number): Promise<void> {
     return new Promise<void>((resolve) => {
       let settled = false;
 
-      const onMessage = (msg: any) => {
+      const onMessage = (msg: any, sender: browser.runtime.MessageSender) => {
         if (settled) return;
+
+        // If a tabId was specified, ensure the message came from that exact tab
+        if (expectedTabId !== undefined && sender?.tab?.id !== expectedTabId) {
+            return;
+        }
+
         if (msg?.action === actionName || msg?.target === 'background' && msg?.action === actionName) {
           settled = true;
           browser.runtime.onMessage.removeListener(onMessage);
