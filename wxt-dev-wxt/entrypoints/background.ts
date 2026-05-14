@@ -183,11 +183,11 @@ export default defineBackground({
       },
     ];
 
-    for (const platform of platforms) {
+    await Promise.all(platforms.map(async (platform) => {
       try {
         const prevLoggedIn = await getStorageItem(platform.storageKey);
         // Only alert if we knew the user was logged in before
-        if (prevLoggedIn !== true) continue;
+        if (prevLoggedIn !== true) return;
 
         const resp = await fetch(platform.url, {
           credentials: 'include',
@@ -220,7 +220,7 @@ export default defineBackground({
         // Network error — don't assume logged out, stay silent
         console.warn(`[LootNova] silentSessionCheck failed for ${platform.name}:`, e);
       }
-    }
+    }));
   },
 
   async getFreeGamesList() {
