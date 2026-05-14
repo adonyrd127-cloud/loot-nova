@@ -35,7 +35,7 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
 
       // Allow empty catch blocks (common in graceful fallbacks)
-      'no-empty': ['error', { allowEmpty: true }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
       '@typescript-eslint/no-empty-function': 'off',
 
       // Allow non-null assertions (common in DOM queries)
