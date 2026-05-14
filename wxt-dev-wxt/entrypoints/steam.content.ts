@@ -9,7 +9,9 @@ import {
     clickWhenVisible,
     incrementCounter, waitForAllElements,
     waitForElement,
-    waitForPageLoad
+    waitForPageLoad,
+    isVisible,
+    wait
 } from "@/entrypoints/utils/helpers.ts";
 import { ContentScriptRunner } from "@/entrypoints/utils/contentScriptFramework.ts";
 import { sanitizeGameTitle, sanitizeUrl } from "@/entrypoints/utils/sanitize.ts";
@@ -79,31 +81,47 @@ export default defineContentScript({
                 name: 'steamClaim',
                 timeoutMs: 15000,
                 execute: async () => {
-                    for (const buyOption of buyOptions) {
-                        if (buyOption && isCurrentGameFree(buyOption)) {
-                            // Find the "Add to Account" anchor
-                            const anchor = await waitForElement(buyOption, "div.btn_addtocart a");
-                            if (!anchor) continue;
+                    const freeOptions = Array.from(buyOptions).filter(bo => bo && isCurrentGameFree(bo));
+                    if (freeOptions.length === 0) return;
 
-                            const href = (anchor as HTMLAnchorElement).getAttribute("href") || "";
+                    let anchor: HTMLAnchorElement | null = null;
+                    let selectedBuyOption: HTMLElement | null = null;
+                    let retry = 0;
+                    const maxRetry = 10;
+                    const timeout = 500;
 
-                            // Special-case Steam's javascript: URL to avoid CSP violation
-                            const m = href.match(/^javascript:\s*addToCart\(\s*(\d+)\s*\)\s*;?\s*$/i);
-                            if (m) {
-                                const appid = parseInt(m[1], 10);
-                                await browser.runtime.sendMessage({
-                                    target: "background",
-                                    action: "steamAddToCart",
-                                    data: { appid }
-                                });
-                            } else {
-                                await clickWhenVisible("div.btn_addtocart a", buyOption);
+                    while (retry < maxRetry) {
+                        for (const buyOption of freeOptions) {
+                            const a = buyOption.querySelector("div.btn_addtocart a") as HTMLAnchorElement | null;
+                            if (a && isVisible(a)) {
+                                anchor = a;
+                                selectedBuyOption = buyOption as HTMLElement;
+                                break;
                             }
-
-                            await incrementCounter();
-                            break;
                         }
+                        if (anchor) break;
+                        await wait(timeout);
+                        retry++;
                     }
+
+                    if (!anchor || !selectedBuyOption) return;
+
+                    const href = anchor.getAttribute("href") || "";
+
+                    // Special-case Steam's javascript: URL to avoid CSP violation
+                    const m = href.match(/^javascript:\s*addToCart\(\s*(\d+)\s*\)\s*;?\s*$/i);
+                    if (m) {
+                        const appid = parseInt(m[1], 10);
+                        await browser.runtime.sendMessage({
+                            target: "background",
+                            action: "steamAddToCart",
+                            data: { appid }
+                        });
+                    } else {
+                        await clickWhenVisible("div.btn_addtocart a", selectedBuyOption);
+                    }
+
+                    await incrementCounter();
                 }
             }], 'steam', pageTitle);
         }
