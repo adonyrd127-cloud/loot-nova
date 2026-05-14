@@ -4,7 +4,6 @@ import { storage } from 'wxt/storage';
 import { FreeGame } from '@/entrypoints/types/freeGame.ts';
 import { ClaimedGame } from '@/entrypoints/types/claimedGame.ts';
 import { PlatformStatus } from '@/entrypoints/types/ui.ts';
-import { Platforms } from '@/entrypoints/enums/platforms.ts';
 import { ClaimFrequency } from '@/entrypoints/enums/claimFrequency.ts';
 
 export interface UserSettings {
