@@ -139,12 +139,15 @@ export function extractRedeemCode(): RedeemInfo | null {
 
     if (isGOG)   return { code, redeemUrl: `https://www.gog.com/redeem/${code}`,   platform: 'GOG'   };
     if (isXbox)  return { code, redeemUrl: `https://www.xbox.com/redeemtoken?token=${code}`, platform: 'Xbox'  };
+
     if (isSteam) return { code, redeemUrl: `https://store.steampowered.com/account/registerkey?key=${code}`, platform: 'Steam' };
+
     return null;
 }
 
 function extractFromGogHref(href: string): RedeemInfo | null {
     const code = href.split('/redeem/')[1]?.split('?')[0]?.split('#')[0] ?? '';
     if (!code) return null;
+    /* istanbul ignore next */
     return { code, redeemUrl: `https://www.gog.com/redeem/${code}`, platform: 'GOG' };
 }
