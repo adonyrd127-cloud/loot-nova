@@ -47,6 +47,16 @@ describe('wait utility', () => {
 });
 
 describe('getRndInteger utility', () => {
+    let mathRandomSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        mathRandomSpy = vi.spyOn(Math, 'random');
+    });
+
+    afterEach(() => {
+        mathRandomSpy.mockRestore();
+    });
+
     it('returns a number within range', async () => {
         const { getRndInteger } = await import('@/entrypoints/utils/helpers.ts');
 
@@ -60,5 +70,37 @@ describe('getRndInteger utility', () => {
     it('returns min when min === max', async () => {
         const { getRndInteger } = await import('@/entrypoints/utils/helpers.ts');
         expect(getRndInteger(5, 5)).toBe(5);
+    });
+
+    it('returns exactly min when Math.random() is 0', async () => {
+        const { getRndInteger } = await import('@/entrypoints/utils/helpers.ts');
+        mathRandomSpy.mockReturnValue(0);
+        expect(getRndInteger(10, 20)).toBe(10);
+    });
+
+    it('returns exactly max when Math.random() is almost 1', async () => {
+        const { getRndInteger } = await import('@/entrypoints/utils/helpers.ts');
+        mathRandomSpy.mockReturnValue(0.9999999999999999);
+        expect(getRndInteger(10, 20)).toBe(20);
+    });
+
+    it('handles negative ranges correctly', async () => {
+        const { getRndInteger } = await import('@/entrypoints/utils/helpers.ts');
+
+        for (let i = 0; i < 100; i++) {
+            const result = getRndInteger(-30, -10);
+            expect(result).toBeGreaterThanOrEqual(-30);
+            expect(result).toBeLessThanOrEqual(-10);
+        }
+    });
+
+    it('handles ranges crossing zero correctly', async () => {
+        const { getRndInteger } = await import('@/entrypoints/utils/helpers.ts');
+
+        for (let i = 0; i < 100; i++) {
+            const result = getRndInteger(-10, 10);
+            expect(result).toBeGreaterThanOrEqual(-10);
+            expect(result).toBeLessThanOrEqual(10);
+        }
     });
 });
