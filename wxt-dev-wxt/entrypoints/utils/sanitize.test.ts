@@ -35,6 +35,27 @@ describe('sanitize.ts', () => {
       expect(sanitized.length).toBe(200);
       expect(sanitized).toBe('A'.repeat(200));
     });
+
+    it('should handle exactly 200 characters correctly', () => {
+      const exactly200 = 'B'.repeat(200);
+      expect(sanitizeGameTitle(exactly200).length).toBe(200);
+      expect(sanitizeGameTitle(exactly200)).toBe(exactly200);
+    });
+
+    it('should return an empty string for empty input', () => {
+      expect(sanitizeGameTitle('')).toBe('');
+    });
+
+    it('should return an empty string for all-whitespace input', () => {
+      expect(sanitizeGameTitle('   \t\n   ')).toBe('');
+    });
+
+    it('should gracefully handle null or undefined input', () => {
+      // @ts-ignore
+      expect(sanitizeGameTitle(null)).toBe('');
+      // @ts-ignore
+      expect(sanitizeGameTitle(undefined)).toBe('');
+    });
   });
 
   describe('sanitizeUrl', () => {

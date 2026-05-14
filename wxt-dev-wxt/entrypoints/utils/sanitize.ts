@@ -7,6 +7,8 @@
  * Use on all game titles extracted from page DOM or external APIs.
  */
 export function sanitizeGameTitle(title: string): string {
+  if (!title) return '';
+
   return title
     .replace(/[<>"'&]/g, '')  // Remove HTML/script chars
     .replace(/[\x00-\x1F]/g, '') // Remove control characters
