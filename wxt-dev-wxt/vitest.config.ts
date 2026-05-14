@@ -11,6 +11,7 @@ export default defineConfig({
         alias: {
             '#imports': path.resolve(__dirname, 'entrypoints/__mocks__/wxtImports.ts'),
         },
+        setupFiles: ['./tests/setup.ts'],
     },
     resolve: {
         alias: {
