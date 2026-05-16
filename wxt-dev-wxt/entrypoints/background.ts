@@ -35,6 +35,7 @@ let isChecking = false;
 
 export default defineBackground({
   main() {
+    console.log('[LootNova] Background Service Worker initialized. Build: 2026-05-16-v2');
     browser.runtime.onStartup.addListener(() => {
       // Schedule a startup claim check via alarm (most reliable in MV3)
       void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 }); // ~6 seconds
@@ -351,19 +352,25 @@ export default defineBackground({
 
         // ── Silent Claiming Intercept ──
         if (game.platform === Platforms.Steam || game.platform === 'GOG') {
-          const platformId = game.platform === Platforms.Steam ? 'steam' : 'gog';
-          const platformInstance = registry.get(platformId);
-          if (platformInstance) {
-            console.log(`[LootNova/Claim] Trying silent claim for "${game.title}"...`);
-            const success = await platformInstance.claimGame(game);
-            console.log(`[LootNova/Claim] Silent claim result for "${game.title}": ${success}`);
-            if (success) {
-              sendClaimNotification(game.title, game.platform);
-              await this.addToHistory(game);
-              console.log(`[LootNova/Claim] ✅ "${game.title}" claimed silently!`);
-              return; // Skip opening any tabs!
+          // WE SKIP SILENT CLAIM FOR STEAM FOR NOW because it's unreliable.
+          // This forces the extension to open a tab and use the content script.
+          if (game.platform === Platforms.Steam) {
+            console.log(`[LootNova/Claim] Skipping silent claim for Steam to ensure reliable tab-based claim for "${game.title}"`);
+          } else {
+            const platformId = 'gog';
+            const platformInstance = registry.get(platformId);
+            if (platformInstance) {
+              console.log(`[LootNova/Claim] Trying silent claim for "${game.title}"...`);
+              const success = await platformInstance.claimGame(game);
+              console.log(`[LootNova/Claim] Silent claim result for "${game.title}": ${success}`);
+              if (success) {
+                sendClaimNotification(game.title, game.platform);
+                await this.addToHistory(game);
+                console.log(`[LootNova/Claim] ✅ "${game.title}" claimed silently!`);
+                return; // Skip opening any tabs!
+              }
+              console.log(`[LootNova/Claim] Silent claim failed, falling back to tab for "${game.title}"...`);
             }
-            console.log(`[LootNova/Claim] Silent claim failed, falling back to tab for "${game.title}"...`);
           }
         }
 

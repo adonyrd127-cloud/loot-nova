@@ -59,81 +59,13 @@ export class SteamPlatform extends BasePlatform {
   getLoginUrl(): string {
     return "https://store.steampowered.com/login/";
   }
-  async claimGame(game: FreeGame): Promise<boolean> {
-    try {
-      const htmlResp = await fetch(game.link, { credentials: 'include' });
-      const htmlText = await htmlResp.text();
-      const root = parse(htmlText);
-
-      const sessionMatch = htmlText.match(/g_sessionID\s*=\s*"([^"]+)"/);
-      const sessionId = sessionMatch ? sessionMatch[1] : null;
-
-      if (!sessionId) {
-        logger.warn("Could not find Steam session ID, falling back to tab", { platform: 'steam' });
-        return false; // Let background.ts handle the tab-based fallback
-      }
-
-      // 1. Try AddFreeLicense pattern (free-to-play / free-to-keep via license)
-      const addLicenseMatch = htmlText.match(/AddFreeLicense\s*\(\s*(\d+)\s*(,\s*'.*?')?\s*\)/);
-      let subId = addLicenseMatch ? addLicenseMatch[1] : null;
-
-      // 2. Try addToCart pattern (used by -100% discount promotions)
-      if (!subId) {
-        const addToCartMatch = htmlText.match(/addToCart\s*\(\s*(\d+)\s*\)/i);
-        subId = addToCartMatch ? addToCartMatch[1] : null;
-      }
-
-      // 3. Try hidden input field
-      if (!subId) {
-        const subIdInput = root.querySelector('input[name="subid"]');
-        if (subIdInput) subId = subIdInput.getAttribute('value') || null;
-      }
-
-      if (!subId) {
-        logger.warn("Could not find subid/appid for silent claiming, falling back to tab", { platform: 'steam' });
-        return false; // Let background.ts handle the tab-based fallback
-      }
-
-      // Try the addfreelicense endpoint first (works for free licenses)
-      const formData = new FormData();
-      formData.append('action', 'add_to_cart');
-      formData.append('sessionid', sessionId);
-      formData.append('subid', subId);
-
-      let claimResp = await fetch('https://store.steampowered.com/checkout/addfreelicense', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include'
-      });
-
-      if (claimResp.ok) {
-        logger.info(`Silently claimed Steam game: ${game.title}`, { platform: 'steam' });
-        return true;
-      }
-
-      // Fallback: try the regular cart endpoint for -100% discounts
-      const cartFormData = new URLSearchParams();
-      cartFormData.append('action', 'add_to_cart');
-      cartFormData.append('sessionid', sessionId);
-      cartFormData.append('subid', subId);
-
-      claimResp = await fetch('https://store.steampowered.com/cart/', {
-        method: 'POST',
-        body: cartFormData,
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
-
-      if (claimResp.ok) {
-        logger.info(`Silently claimed Steam game via cart: ${game.title}`, { platform: 'steam' });
-        return true;
-      }
-
-      logger.warn(`Silent claim failed for ${game.title}, falling back to tab`, { platform: 'steam' });
-      return false; // Let background.ts handle the tab-based fallback
-    } catch (e) {
-      logger.error("Error during silent claim, falling back to tab", { platform: 'steam' }, e as Error);
-      return false; // Let background.ts handle the tab-based fallback
-    }
+  async claimGame(_game: FreeGame): Promise<boolean> {
+    // Silent claiming via fetch POST does NOT work reliably for Steam.
+    // Steam's -100% discount games require a full browser session (cookies,
+    // JS execution, cart flow) that can't be replicated from a service worker.
+    // The fetch returns HTTP 200 but doesn't actually add the game.
+    // Always fall back to the tab-based approach where the content script
+    // clicks the real "Add to account" button on the page.
+    return false;
   }
 }
