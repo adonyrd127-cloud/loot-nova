@@ -609,13 +609,25 @@ export default defineBackground({
       }
     }
 
-    const currFreeGames: FreeGame[] = (await getStorageItem("steamGames")) || [];
-    const currTitles = new Set(currFreeGames.map(g => g?.title));
-    const newGames: FreeGame[] = gamesArr.filter(game => !currTitles.has(game?.title));
-    if (newGames.length === 0) return false;
-    await setStorageItem('steamGames', newGames);
-    sendNewGamesNotification(newGames.length);
-    if (shouldClaim) await this.claimGames(newGames);
+    if (gamesArr.length === 0) return false;
+
+    // Always update the detected games list
+    await setStorageItem('steamGames', gamesArr);
+
+    // Filter out games that were already successfully claimed (in history)
+    const claimedHistory: Array<{ title?: string; platform?: string }> =
+        (await getStorageItem("claimedHistory")) ?? [];
+    const claimedTitles = new Set(
+        claimedHistory
+            .filter(h => h.platform === Platforms.Steam)
+            .map(h => h.title)
+    );
+    const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
+
+    if (unclaimedGames.length === 0) return false;
+
+    sendNewGamesNotification(unclaimedGames.length);
+    if (shouldClaim) await this.claimGames(unclaimedGames);
     return true;
   },
 
