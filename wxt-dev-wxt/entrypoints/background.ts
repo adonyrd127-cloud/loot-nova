@@ -91,7 +91,9 @@ export default defineBackground({
     // This is the critical part — always attempt to claim
     try {
       const result = await getStorageItems(["active", "claimFrequency"]);
-      if (!result?.active) {
+      // Default to true if never set (matches frontend default in OnButton.tsx)
+      const isActive = result?.active !== undefined ? result.active : true;
+      if (!isActive) {
         console.log('[LootNova] Auto-claim is disabled, skipping startup claim.');
         return;
       }
@@ -105,7 +107,8 @@ export default defineBackground({
 
   async handleAlarmTriggered() {
     const result = await getStorageItems(["active", "claimFrequency"]);
-    if (!result?.active) return;
+    const isActive = result?.active !== undefined ? result.active : true;
+    if (!isActive) return;
     const frequency = result.claimFrequency || ClaimFrequency.DAILY;
     await this.checkAndClaimIfDue(frequency);
   },
@@ -158,7 +161,8 @@ export default defineBackground({
 
   async initializeAlarms() {
     const result = await getStorageItems(["active", "claimFrequency"]);
-    if (!result?.active) {
+    const isActive = result?.active !== undefined ? result.active : true;
+    if (!isActive) {
       try { await browser.alarms.clear(ALARM_NAME); } catch (_) {}
       return;
     }
@@ -256,7 +260,12 @@ export default defineBackground({
   },
 
   async getFreeGamesList() {
-    const { steamCheck, epicCheck, amazonCheck, gogCheck } = await getStorageItems(["steamCheck", "epicCheck", "amazonCheck", "gogCheck"]);
+    const checks = await getStorageItems(["steamCheck", "epicCheck", "amazonCheck", "gogCheck"]);
+    // Default to true for platforms enabled by default in Settings.tsx
+    const steamCheck  = checks?.steamCheck  !== undefined ? checks.steamCheck  : true;
+    const epicCheck   = checks?.epicCheck   !== undefined ? checks.epicCheck   : true;
+    const amazonCheck = checks?.amazonCheck !== undefined ? checks.amazonCheck : true;
+    const gogCheck    = checks?.gogCheck    !== undefined ? checks.gogCheck    : false; // GOG defaults to false
 
     // ── Parallel fetching — Epic + Steam + GOG run concurrently (~2x faster) ──
     const promises: Promise<void>[] = [];
@@ -523,8 +532,23 @@ export default defineBackground({
     });
   },
 
-  handleInstall(r: browser.runtime.InstalledDetails) {
+  async handleInstall(r: browser.runtime.InstalledDetails) {
+    // Ensure defaults are set on first install so the background script
+    // reads the same defaults as the popup UI (OnButton defaults active=true)
+    if (r.reason === "install") {
+      await setStorageItem("active", true);
+      await setStorageItem("claimFrequency", ClaimFrequency.DAILY);
+      await setStorageItem("steamCheck", true);
+      await setStorageItem("epicCheck", true);
+      await setStorageItem("amazonCheck", true);
+      await setStorageItem("notificationsEnabled", true);
+    }
     if (r.reason === "update") {
+      // Also ensure active is set for users upgrading from older versions
+      const existing = await getStorageItem("active");
+      if (existing === null || existing === undefined) {
+        await setStorageItem("active", true);
+      }
       browser.action.setBadgeBackgroundColor({ color: "#f59e0b" });
       void this.setBadgeText("New");
     }
