@@ -35,19 +35,21 @@ let isChecking = false;
 
 export default defineBackground({
   async main() {
-    let startupHandled = false;
-
-    browser.runtime.onStartup.addListener(async () => {
-      if (startupHandled) return;
-      startupHandled = true;
-      await this.handleStartup();
+    browser.runtime.onStartup.addListener(() => {
+      // Schedule a startup claim check via alarm (most reliable in MV3)
+      void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 }); // ~6 seconds
+      console.log('[LootNova] Browser started — scheduled startup claim alarm.');
     });
 
     browser.runtime.onMessage.addListener((request: MessageRequest, sender: browser.runtime.MessageSender) =>
         this.handleMessage(request, sender)
     );
 
-    browser.runtime.onInstalled.addListener((r: browser.runtime.InstalledDetails) => this.handleInstall(r));
+    browser.runtime.onInstalled.addListener((r: browser.runtime.InstalledDetails) => {
+      this.handleInstall(r);
+      // Also trigger a claim check on install/update
+      void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 });
+    });
 
     browser.alarms.onAlarm.addListener((alarm: browser.alarms.Alarm) => {
       if (alarm.name === ALARM_NAME) {
@@ -56,6 +58,10 @@ export default defineBackground({
       if (alarm.name === SESSION_ALARM_NAME) {
         void this.silentSessionCheck();
       }
+      if (alarm.name === "startupClaim") {
+        console.log('[LootNova] Startup claim alarm fired.');
+        void this.handleStartup();
+      }
     });
 
     void browser.action.setBadgeBackgroundColor({ color: "#8b5cf6" }); // violet — LootNova brand color
@@ -63,19 +69,14 @@ export default defineBackground({
     // Register the 12-hour session check alarm once (idempotent)
     await this.initializeSessionAlarm();
 
-    // Run startup check directly — onStartup doesn't fire reliably in MV3
-    // service workers (e.g. after extension update or SW restart).
-    // The guard flag prevents double execution if onStartup also fires.
-    if (!startupHandled) {
-      startupHandled = true;
-      await this.handleStartup();
-    }
+    // Always schedule a startup claim when the service worker initializes.
+    // This covers: cold browser start, extension update, SW restart by Chrome.
+    // The alarm API is the ONLY reliable way to trigger work in MV3 SWs.
+    void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 });
+    console.log('[LootNova] Service worker initialized — startup alarm scheduled.');
   },
 
   async handleStartup() {
-    // Small delay to let the network initialize on cold browser start
-    await new Promise(r => setTimeout(r, 3000));
-
     // Login/session checks are best-effort — never block claiming
     try {
       await this.checkLoginStatuses();
