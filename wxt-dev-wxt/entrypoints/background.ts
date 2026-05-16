@@ -34,7 +34,7 @@ const TAB_LOAD_TIMEOUT_MS  = 45_000;
 let isChecking = false;
 
 export default defineBackground({
-  async main() {
+  main() {
     browser.runtime.onStartup.addListener(() => {
       // Schedule a startup claim check via alarm (most reliable in MV3)
       void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 }); // ~6 seconds
@@ -65,13 +65,11 @@ export default defineBackground({
     });
 
     void browser.action.setBadgeBackgroundColor({ color: "#8b5cf6" }); // violet — LootNova brand color
-    await this.initializeAlarms();
-    // Register the 12-hour session check alarm once (idempotent)
-    await this.initializeSessionAlarm();
+    void this.initializeAlarms();
+    void this.initializeSessionAlarm();
 
     // Always schedule a startup claim when the service worker initializes.
     // This covers: cold browser start, extension update, SW restart by Chrome.
-    // The alarm API is the ONLY reliable way to trigger work in MV3 SWs.
     void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 });
     console.log('[LootNova] Service worker initialized — startup alarm scheduled.');
   },
