@@ -15,6 +15,7 @@ export type EpicElement = {
     price?: {
         totalPrice?: {
             discountPrice?: number;
+            originalPrice?: number;
         };
     };
 

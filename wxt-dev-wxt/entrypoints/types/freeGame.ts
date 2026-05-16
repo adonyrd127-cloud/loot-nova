@@ -9,4 +9,5 @@ export type FreeGame = {
     startDate?: string;
     endDate?: string;
     future?: boolean;
+    retailPrice?: number;
 }

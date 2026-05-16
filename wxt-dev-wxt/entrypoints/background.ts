@@ -406,8 +406,11 @@ export default defineBackground({
       const historySet = new Set(history.map(h => `${h.title}|${h.platform}`));
       if (historySet.has(`${game.title}|${game.platform}`)) return;
 
-      // Fetch retail price silently — never blocks saving if it fails
-      const retailPrice = await fetchRetailPrice(game.title).catch(() => null) ?? undefined;
+      // Use passed price if available, otherwise fetch from ITAD
+      let retailPrice = game.retailPrice;
+      if (retailPrice == null || retailPrice <= 0) {
+        retailPrice = await fetchRetailPrice(game.title).catch(() => null) ?? undefined;
+      }
 
       const entry: ClaimedGame = {
         title:     game.title,
@@ -632,6 +635,9 @@ export default defineBackground({
     const promo = (future
         ? game.promotions?.upcomingPromotionalOffers?.[0]?.promotionalOffers?.[0]
         : game.promotions?.promotionalOffers?.[0]?.promotionalOffers?.[0]) ?? {};
+    const originalPrice = game.price?.totalPrice?.originalPrice;
+    const retailPrice = (originalPrice != null && originalPrice > 0) ? originalPrice / 100 : undefined;
+
     return {
       title: sanitizeGameTitle(game.title ?? ""),
       platform: Platforms.Epic,
@@ -644,6 +650,7 @@ export default defineBackground({
       startDate: new Date(promo.startDate ?? 0).toISOString(),
       endDate:   new Date(promo.endDate ?? 0).toISOString(),
       future,
+      retailPrice,
     };
   },
 
@@ -674,12 +681,20 @@ export default defineBackground({
           imgEl?.getAttribute('data-src')?.trim() ||
           imgEl?.getAttribute('data-lazy')?.trim() || '';
 
+      const priceEl = node.querySelector('.discount_original_price');
+      let retailPrice: number | undefined;
+      if (priceEl) {
+        const priceText = priceEl.text.trim().replace(/[^\d.,]/g, '').replace(',', '.');
+        retailPrice = parseFloat(priceText) || undefined;
+      }
+
       if (href && title) {
         gamesArr.push({
           link: sanitizeUrl(resolveUrl(href)),
           img: imgRaw ? sanitizeUrl(resolveUrl(imgRaw)) : '',
           title,
           platform: Platforms.Steam,
+          retailPrice,
         });
       }
     }
