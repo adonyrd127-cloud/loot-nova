@@ -278,6 +278,8 @@ export default defineBackground({
       );
     }
 
+    console.log(`[LootNova] Platform checks — steam:${steamCheck}, epic:${epicCheck}, amazon:${amazonCheck}, gog:${gogCheck}`);
+
     if (steamCheck) {
       promises.push(
         this.getSteamGamesList(true).catch(async (e: unknown) => {
@@ -339,6 +341,8 @@ export default defineBackground({
 
     await Promise.all(games.map(game => limit(async () => {
       try {
+        console.log(`[LootNova/Claim] Attempting: "${game.title}" (${game.platform}) — ${game.link}`);
+
         // ── Security: validate URL before opening tab ──
         if (!validateGameUrl(game.link, game.platform)) {
           logger.error('Blocked claim for invalid URL', { platform: game.platform, gameId: game.title });
@@ -346,16 +350,20 @@ export default defineBackground({
         }
 
         // ── Silent Claiming Intercept ──
-        if (game.platform === Platforms.Steam || game.platform === Platforms.Gog) {
+        if (game.platform === Platforms.Steam || game.platform === 'GOG') {
           const platformId = game.platform === Platforms.Steam ? 'steam' : 'gog';
           const platformInstance = registry.get(platformId);
           if (platformInstance) {
+            console.log(`[LootNova/Claim] Trying silent claim for "${game.title}"...`);
             const success = await platformInstance.claimGame(game);
+            console.log(`[LootNova/Claim] Silent claim result for "${game.title}": ${success}`);
             if (success) {
               sendClaimNotification(game.title, game.platform);
               await this.addToHistory(game);
+              console.log(`[LootNova/Claim] ✅ "${game.title}" claimed silently!`);
               return; // Skip opening any tabs!
             }
+            console.log(`[LootNova/Claim] Silent claim failed, falling back to tab for "${game.title}"...`);
           }
         }
 
@@ -622,14 +630,20 @@ export default defineBackground({
   },
 
   async getSteamGamesList(shouldClaim: boolean = true): Promise<boolean> {
+    console.log('[LootNova/Steam] Fetching free games list...');
     const html = await fetch(STEAM_GAMES_URL).then(r => r.text());
+    console.log(`[LootNova/Steam] Fetched HTML (${html.length} chars)`);
     const root = parse(html);
     const resolveUrl = (u: string) =>
         u ? new URL(u, 'https://store.steampowered.com').toString() : '';
 
     const container = root.querySelector('div#search_result_container');
     const freeGameNodes = container ? container.querySelectorAll('a.search_result_row') : [];
-    if (freeGameNodes.length === 0) return false;
+    console.log(`[LootNova/Steam] Found ${freeGameNodes.length} search result nodes`);
+    if (freeGameNodes.length === 0) {
+      console.log('[LootNova/Steam] No free games found on search page.');
+      return false;
+    }
 
     const gamesArr: FreeGame[] = [];
     for (const node of freeGameNodes) {
@@ -652,6 +666,8 @@ export default defineBackground({
       }
     }
 
+    console.log(`[LootNova/Steam] Parsed ${gamesArr.length} games:`, gamesArr.map(g => g.title));
+
     if (gamesArr.length === 0) return false;
 
     // Always update the detected games list
@@ -665,12 +681,21 @@ export default defineBackground({
             .filter(h => h.platform === Platforms.Steam)
             .map(h => h.title)
     );
+    console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
     const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
 
-    if (unclaimedGames.length === 0) return false;
+    console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
+
+    if (unclaimedGames.length === 0) {
+      console.log('[LootNova/Steam] All games already claimed.');
+      return false;
+    }
 
     sendNewGamesNotification(unclaimedGames.length);
-    if (shouldClaim) await this.claimGames(unclaimedGames);
+    if (shouldClaim) {
+      console.log('[LootNova/Steam] Starting claim process...');
+      await this.claimGames(unclaimedGames);
+    }
     return true;
   },
 
