@@ -35,7 +35,7 @@ let isChecking = false;
 
 export default defineBackground({
   main() {
-    console.log('[LootNova] Background Service Worker initialized. Build: 2026-05-16-v2');
+    console.log('[LootNova] Background Service Worker initialized. Version: 1.2.0');
     browser.runtime.onStartup.addListener(() => {
       // Schedule a startup claim check via alarm (most reliable in MV3)
       void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 }); // ~6 seconds
