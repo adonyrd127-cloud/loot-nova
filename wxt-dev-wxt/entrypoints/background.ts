@@ -80,13 +80,13 @@ export default defineBackground({
     try {
       await this.checkLoginStatuses();
     } catch (e) {
-      logger.warn('Startup login check failed (non-blocking)', { action: 'startup' });
+      logger.info('Startup login check failed (non-blocking)', { action: 'startup' });
     }
 
     try {
       await this.silentSessionCheck();
     } catch (e) {
-      logger.warn('Startup session check failed (non-blocking)', { action: 'startup' });
+      logger.info('Startup session check failed (non-blocking)', { action: 'startup' });
     }
 
     // This is the critical part — always attempt to claim
@@ -760,7 +760,8 @@ export default defineBackground({
         if (!settled) {
           settled = true;
           browser.runtime.onMessage.removeListener(onMessage);
-          console.warn(`[LootNova] waitForContentResponse('${actionName}') timed out after ${timeoutMs}ms`);
+          // Changed to debug log to avoid cluttering Chrome's error console for non-critical timeouts
+          logger.debug(`waitForContentResponse('${actionName}') timed out after ${timeoutMs}ms`, { action: 'timeout' });
           resolve();
         }
       }, timeoutMs);

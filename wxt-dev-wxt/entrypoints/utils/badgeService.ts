@@ -66,7 +66,7 @@ export async function fetchOpenCriticScore(gameName: string): Promise<number | n
             return score;
         });
     } catch (e) {
-        logger.warn(`OpenCritic lookup failed for "${gameName}"`, { action: 'opencritic' });
+        logger.info(`OpenCritic lookup skipped/failed for "${gameName}" (non-critical)`, { action: 'opencritic' });
         return null; // graceful fallback — badge won't show
     }
 }
@@ -100,7 +100,7 @@ export async function fetchProtonDbTier(steamAppId: string): Promise<ProtonDbSum
             return tier;
         });
     } catch (e) {
-        logger.warn(`ProtonDB lookup failed for app ${steamAppId}`, { action: 'protondb' });
+        logger.info(`ProtonDB lookup skipped/failed for app ${steamAppId} (non-critical)`, { action: 'protondb' });
         return null; // graceful fallback — badge won't show
     }
 }

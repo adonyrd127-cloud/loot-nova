@@ -154,7 +154,7 @@ export async function fetchRetailPrice(gameTitle: string): Promise<number | null
             return price;
         });
     } catch (err) {
-        logger.warn(`Price lookup failed for "${gameTitle}"`, { action: 'itad' });
+        logger.info(`Price lookup skipped/failed for "${gameTitle}" (non-critical)`, { action: 'itad' });
         // Do NOT cache errors — retry on next claim
         return null;
     }
