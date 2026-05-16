@@ -557,6 +557,17 @@ export default defineBackground({
       if (existing === null || existing === undefined) {
         await setStorageItem("active", true);
       }
+
+      // One-time fix: purge falsely claimed Steam entries from history.
+      // The old code had a bug where super.claimGame() returned true without
+      // actually claiming, so Steam games were added to history incorrectly.
+      const history: ClaimedGame[] = (await getStorageItem("claimedHistory")) ?? [];
+      const cleaned = history.filter(h => h.platform !== Platforms.Steam && h.platform !== 'Steam');
+      if (cleaned.length !== history.length) {
+        await setStorageItem("claimedHistory", cleaned);
+        console.log(`[LootNova] Cleaned ${history.length - cleaned.length} false Steam entries from history.`);
+      }
+
       browser.action.setBadgeBackgroundColor({ color: "#f59e0b" });
       void this.setBadgeText("New");
     }
