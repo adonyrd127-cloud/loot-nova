@@ -73,15 +73,35 @@ export default defineBackground({
   },
 
   async handleStartup() {
-    // Check login status immediately so the popup shows accurate indicators
-    await this.checkLoginStatuses();
-    // Run a silent session check on startup too
-    await this.silentSessionCheck();
-    
-    const result = await getStorageItems(["active", "claimFrequency"]);
-    if (!result?.active) return;
-    const frequency = result.claimFrequency || ClaimFrequency.DAILY;
-    await this.checkAndClaimIfDue(frequency);
+    // Small delay to let the network initialize on cold browser start
+    await new Promise(r => setTimeout(r, 3000));
+
+    // Login/session checks are best-effort — never block claiming
+    try {
+      await this.checkLoginStatuses();
+    } catch (e) {
+      logger.warn('Startup login check failed (non-blocking)', { action: 'startup' });
+    }
+
+    try {
+      await this.silentSessionCheck();
+    } catch (e) {
+      logger.warn('Startup session check failed (non-blocking)', { action: 'startup' });
+    }
+
+    // This is the critical part — always attempt to claim
+    try {
+      const result = await getStorageItems(["active", "claimFrequency"]);
+      if (!result?.active) {
+        console.log('[LootNova] Auto-claim is disabled, skipping startup claim.');
+        return;
+      }
+      const frequency = result.claimFrequency || ClaimFrequency.DAILY;
+      console.log(`[LootNova] Startup claim triggered (frequency: ${frequency})`);
+      await this.checkAndClaimIfDue(frequency);
+    } catch (e) {
+      logger.error('Startup claim failed', { action: 'startup' }, e as Error);
+    }
   },
 
   async handleAlarmTriggered() {
