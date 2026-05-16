@@ -35,7 +35,11 @@ let isChecking = false;
 
 export default defineBackground({
   async main() {
+    let startupHandled = false;
+
     browser.runtime.onStartup.addListener(async () => {
+      if (startupHandled) return;
+      startupHandled = true;
       await this.handleStartup();
     });
 
@@ -58,6 +62,14 @@ export default defineBackground({
     await this.initializeAlarms();
     // Register the 12-hour session check alarm once (idempotent)
     await this.initializeSessionAlarm();
+
+    // Run startup check directly — onStartup doesn't fire reliably in MV3
+    // service workers (e.g. after extension update or SW restart).
+    // The guard flag prevents double execution if onStartup also fires.
+    if (!startupHandled) {
+      startupHandled = true;
+      await this.handleStartup();
+    }
   },
 
   async handleStartup() {
