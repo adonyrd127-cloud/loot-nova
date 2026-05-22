@@ -10,6 +10,8 @@ export default defineConfig({
         // Mock WXT-specific modules that don't exist outside the build
         alias: {
             '#imports': path.resolve(__dirname, 'entrypoints/__mocks__/wxtImports.ts'),
+            'wxt/storage': path.resolve(__dirname, 'entrypoints/__mocks__/wxtImports.ts'),
+            'wxt/browser': path.resolve(__dirname, 'entrypoints/__mocks__/wxtImports.ts'),
         },
         setupFiles: ['./tests/setup.ts'],
     },
