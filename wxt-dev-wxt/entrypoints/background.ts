@@ -302,44 +302,9 @@ export default defineBackground({
 
     if (steamCheck) {
       promises.push(
-        (async () => {
-          try {
-            const steamPlatform = registry.get('steam');
-            if (steamPlatform) {
-              console.log('[LootNova/Steam] Fetching free games list...');
-              const gamesArr = await steamPlatform.fetchFreeGames();
-              if (gamesArr && gamesArr.length > 0) {
-                // Always update the detected games list
-                await setStorageItem('steamGames', gamesArr);
-
-                // Filter out games that were already successfully claimed (in history)
-                const claimedHistory: Array<{ title?: string; platform?: string }> =
-                    (await getStorageItem("claimedHistory")) ?? [];
-                const claimedTitles = new Set(
-                    claimedHistory
-                        .filter(h => h.platform === Platforms.Steam)
-                        .map(h => h.title)
-                );
-                console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
-                const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
-
-                console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
-
-                if (unclaimedGames.length > 0) {
-                  sendNewGamesNotification(unclaimedGames.length);
-                  console.log('[LootNova/Steam] Starting claim process...');
-                  await this.claimGames(unclaimedGames);
-                } else {
-                  console.log('[LootNova/Steam] All games already claimed.');
-                }
-              } else {
-                console.log('[LootNova/Steam] No free games found on search page.');
-              }
-            }
-          } catch (e) {
-            logger.error('getSteamGamesList failed', { platform: 'steam' }, e as Error);
-          }
-        })()
+        this.processSteamGames(true).catch(async (e: unknown) => {
+          logger.error('processSteamGames failed', { platform: 'steam' }, e as Error);
+        })
       );
     }
 
@@ -637,6 +602,41 @@ export default defineBackground({
     }
   },
 
+  async processSteamGames(shouldClaim: boolean = true): Promise<void> {
+    const steamPlatform = registry.get('steam');
+    if (!steamPlatform) return;
+
+    const gamesArr = await steamPlatform.fetchFreeGames();
+    if (gamesArr && gamesArr.length > 0) {
+      // Always update the detected games list
+      await setStorageItem('steamGames', gamesArr);
+
+      // Filter out games that were already successfully claimed (in history)
+      const claimedHistory: Array<{ title?: string; platform?: string }> =
+          (await getStorageItem("claimedHistory")) ?? [];
+      const claimedTitles = new Set(
+          claimedHistory
+              .filter(h => h.platform === Platforms.Steam)
+              .map(h => h.title)
+      );
+      console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
+      const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
+
+      console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
+
+      if (unclaimedGames.length > 0) {
+        sendNewGamesNotification(unclaimedGames.length);
+        if (shouldClaim) {
+          console.log('[LootNova/Steam] Starting claim process...');
+          await this.claimGames(unclaimedGames);
+        }
+      } else {
+        console.log('[LootNova/Steam] All games already claimed.');
+      }
+    } else {
+      console.log('[LootNova/Steam] No free games found on search page.');
+    }
+  },
   async clearGamesList() {
     await setStorageItem("epicGames", []);
     await setStorageItem("futureGames", []);
