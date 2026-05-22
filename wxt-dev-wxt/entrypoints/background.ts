@@ -21,7 +21,6 @@ const orchestrator = new PlatformOrchestrator(registry);
 
 const EPIC_API_URL    = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
 const EPIC_GAMES_URL  = "https://store.epicgames.com/";
-const STEAM_GAMES_URL = "https://store.steampowered.com/search/?sort_by=Price_ASC&maxprice=free&category1=998&specials=1&ndl=1";
 // Amazon Gaming now lives at luna.amazon.com — gaming.amazon.com redirects there.
 // We open the home page and let the content script scrape + claim.
 const AMAZON_GAMES_URL = "https://luna.amazon.com/claims/home";
@@ -283,8 +282,8 @@ export default defineBackground({
 
     if (steamCheck) {
       promises.push(
-        this.getSteamGamesList(true).catch(async (e: unknown) => {
-          logger.error('getSteamGamesList failed', { platform: 'steam' }, e as Error);
+        this.processSteamGames(true).catch(async (e: unknown) => {
+          logger.error('processSteamGames failed', { platform: 'steam' }, e as Error);
         })
       );
     }
@@ -624,6 +623,42 @@ export default defineBackground({
     }
   },
 
+  async processSteamGames(shouldClaim: boolean = true): Promise<void> {
+    const steamPlatform = registry.get('steam');
+    if (!steamPlatform) return;
+
+    const gamesArr = await steamPlatform.fetchFreeGames();
+    if (gamesArr && gamesArr.length > 0) {
+      // Always update the detected games list
+      await setStorageItem('steamGames', gamesArr);
+
+      // Filter out games that were already successfully claimed (in history)
+      const claimedHistory: Array<{ title?: string; platform?: string }> =
+          (await getStorageItem("claimedHistory")) ?? [];
+      const claimedTitles = new Set(
+          claimedHistory
+              .filter(h => h.platform === Platforms.Steam)
+              .map(h => h.title)
+      );
+      console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
+      const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
+
+      console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
+
+      if (unclaimedGames.length > 0) {
+        sendNewGamesNotification(unclaimedGames.length);
+        if (shouldClaim) {
+          console.log('[LootNova/Steam] Starting claim process...');
+          await this.claimGames(unclaimedGames);
+        }
+      } else {
+        console.log('[LootNova/Steam] All games already claimed.');
+      }
+    } else {
+      console.log('[LootNova/Steam] No free games found on search page.');
+    }
+  },
+
   formatEpicFreeGame(game: EpicElement, future: boolean): FreeGame {
     const epicSlug =
         game.productSlug ||
@@ -652,84 +687,6 @@ export default defineBackground({
       future,
       retailPrice,
     };
-  },
-
-  async getSteamGamesList(shouldClaim: boolean = true): Promise<boolean> {
-    console.log('[LootNova/Steam] Fetching free games list...');
-    const html = await fetch(STEAM_GAMES_URL).then(r => r.text());
-    console.log(`[LootNova/Steam] Fetched HTML (${html.length} chars)`);
-    const root = parse(html);
-    const resolveUrl = (u: string) =>
-        u ? new URL(u, 'https://store.steampowered.com').toString() : '';
-
-    const container = root.querySelector('div#search_result_container');
-    const freeGameNodes = container ? container.querySelectorAll('a.search_result_row') : [];
-    console.log(`[LootNova/Steam] Found ${freeGameNodes.length} search result nodes`);
-    if (freeGameNodes.length === 0) {
-      console.log('[LootNova/Steam] No free games found on search page.');
-      return false;
-    }
-
-    const gamesArr: FreeGame[] = [];
-    for (const node of freeGameNodes) {
-      const href  = node.getAttribute('href') ?? '';
-      const rawTitle = node.querySelector('span.title')?.text?.trim() ?? '';
-      const title = sanitizeGameTitle(rawTitle);
-      const imgEl = node.querySelector('img');
-      const imgRaw =
-          imgEl?.getAttribute('src')?.trim() ||
-          imgEl?.getAttribute('data-src')?.trim() ||
-          imgEl?.getAttribute('data-lazy')?.trim() || '';
-
-      const priceEl = node.querySelector('.discount_original_price');
-      let retailPrice: number | undefined;
-      if (priceEl) {
-        const priceText = priceEl.text.trim().replace(/[^\d.,]/g, '').replace(',', '.');
-        retailPrice = parseFloat(priceText) || undefined;
-      }
-
-      if (href && title) {
-        gamesArr.push({
-          link: sanitizeUrl(resolveUrl(href)),
-          img: imgRaw ? sanitizeUrl(resolveUrl(imgRaw)) : '',
-          title,
-          platform: Platforms.Steam,
-          retailPrice,
-        });
-      }
-    }
-
-    console.log(`[LootNova/Steam] Parsed ${gamesArr.length} games:`, gamesArr.map(g => g.title));
-
-    if (gamesArr.length === 0) return false;
-
-    // Always update the detected games list
-    await setStorageItem('steamGames', gamesArr);
-
-    // Filter out games that were already successfully claimed (in history)
-    const claimedHistory: Array<{ title?: string; platform?: string }> =
-        (await getStorageItem("claimedHistory")) ?? [];
-    const claimedTitles = new Set(
-        claimedHistory
-            .filter(h => h.platform === Platforms.Steam)
-            .map(h => h.title)
-    );
-    console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
-    const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
-
-    console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
-
-    if (unclaimedGames.length === 0) {
-      console.log('[LootNova/Steam] All games already claimed.');
-      return false;
-    }
-
-    sendNewGamesNotification(unclaimedGames.length);
-    if (shouldClaim) {
-      console.log('[LootNova/Steam] Starting claim process...');
-      await this.claimGames(unclaimedGames);
-    }
-    return true;
   },
 
   async clearGamesList() {

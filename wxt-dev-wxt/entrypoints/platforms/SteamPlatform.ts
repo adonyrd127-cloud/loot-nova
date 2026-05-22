@@ -12,6 +12,7 @@ export class SteamPlatform extends BasePlatform {
 
   async fetchFreeGames(): Promise<FreeGame[]> {
     try {
+      console.log('[LootNova/Steam] Fetching free games list...');
       const response = await fetch(this.SEARCH_URL);
       if (!response.ok) {
         logger.error("Failed to fetch Steam data", { platform: 'steam' }, new Error(response.statusText));
@@ -19,23 +20,46 @@ export class SteamPlatform extends BasePlatform {
       }
       
       const html = await response.text();
+      console.log(`[LootNova/Steam] Fetched HTML (${html.length} chars)`);
       const root = parse(html);
-      
-      const gameRows = root.querySelectorAll('a.search_result_row:not(.ds_owned)');
+      const resolveUrl = (u: string) =>
+          u ? new URL(u, 'https://store.steampowered.com').toString() : '';
+
+      const container = root.querySelector('div#search_result_container');
+      const freeGameNodes = container ? container.querySelectorAll('a.search_result_row') : [];
+      console.log(`[LootNova/Steam] Found ${freeGameNodes.length} search result nodes`);
+
       const parsedGames: FreeGame[] = [];
       
-      for (const row of gameRows) {
-        const titleEl = row.querySelector('span.title');
-        const imgEl = row.querySelector('img');
-        if (titleEl && imgEl) {
+      for (const node of freeGameNodes) {
+        const href  = node.getAttribute('href') ?? '';
+        const rawTitle = node.querySelector('span.title')?.text?.trim() ?? '';
+        const title = sanitizeGameTitle(rawTitle);
+        const imgEl = node.querySelector('img');
+        const imgRaw =
+            imgEl?.getAttribute('src')?.trim() ||
+            imgEl?.getAttribute('data-src')?.trim() ||
+            imgEl?.getAttribute('data-lazy')?.trim() || '';
+
+        const priceEl = node.querySelector('.discount_original_price');
+        let retailPrice: number | undefined;
+        if (priceEl) {
+          const priceText = priceEl.text.trim().replace(/[^\d.,]/g, '').replace(',', '.');
+          retailPrice = parseFloat(priceText) || undefined;
+        }
+
+        if (href && title) {
           parsedGames.push({
-            title: sanitizeGameTitle(titleEl.text),
-            link: sanitizeUrl(row.getAttribute('href') || ''),
-            img: sanitizeUrl(imgEl.getAttribute('src') || ''),
-            platform: Platforms.Steam
+            link: sanitizeUrl(resolveUrl(href)),
+            img: imgRaw ? sanitizeUrl(resolveUrl(imgRaw)) : '',
+            title,
+            platform: Platforms.Steam,
+            retailPrice,
           });
         }
       }
+
+      console.log(`[LootNova/Steam] Parsed ${parsedGames.length} games:`, parsedGames.map(g => g.title));
       return parsedGames;
     } catch (e) {
       logger.error("Error fetching Steam games", { platform: 'steam' }, e as Error);
