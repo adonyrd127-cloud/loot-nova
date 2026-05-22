@@ -23,7 +23,6 @@ export class SteamPlatform extends BasePlatform {
       console.log(`[LootNova/Steam] Fetched HTML (${html.length} chars)`);
       const root = parse(html);
       const resolveUrl = (u: string) =>
-      const resolveUrl = (u: string) =>
         u ? new URL(u, 'https://store.steampowered.com').toString() : '';
 
       const container = root.querySelector('div#search_result_container');
