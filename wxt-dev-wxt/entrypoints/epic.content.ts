@@ -61,12 +61,12 @@ export default defineContentScript({
             const offerCards = document.querySelectorAll('[data-testid="offer-card-layout-container"]') as NodeListOf<HTMLAnchorElement>;
             if (offerCards.length > 0) {
                 offerCards.forEach((card) => {
-                    const anchor = card.closest('a') || card.querySelector('a');
+                    const anchor = card.closest('a') || card.getElementsByTagName('a')[0];
                     if (!anchor) return;
                     gamesArr.push({
                         link: sanitizeUrl(anchor.href ?? ''),
-                        img: card.querySelector('img')?.src ?? '',
-                        title: sanitizeGameTitle(card.querySelector('h6, h5, h4')?.textContent?.trim() ?? ''),
+                        img: card.getElementsByTagName('img')[0]?.src ?? '',
+                        title: sanitizeGameTitle((card.getElementsByTagName('h6')[0] || card.getElementsByTagName('h5')[0] || card.getElementsByTagName('h4')[0])?.textContent?.trim() ?? ''),
                         platform: Platforms.Epic,
                     });
                 });
