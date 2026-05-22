@@ -104,7 +104,7 @@ export async function fetchRetailPrice(gameTitle: string): Promise<number | null
         return await itadBreaker.execute(async () => {
             // ── Step 1: Search for the game ID ───────────────────────────────────
             const searchUrl = `${ITAD_BASE}/games/search/v1?title=${encodeURIComponent(gameTitle)}&results=5`;
-            let searchResp = await fetch(searchUrl, {
+            const searchResp = await fetch(searchUrl, {
                 signal: AbortSignal.timeout(TIMEOUT_MS),
             });
             if (!searchResp.ok) throw new Error(`ITAD search HTTP ${searchResp.status}`);
