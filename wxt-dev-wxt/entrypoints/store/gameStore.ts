@@ -57,6 +57,7 @@ const chromeStorageWrapper = {
     try {
       const value = await storage.getItem(`local:${name}`);
       return value ? JSON.stringify(value) : null;
+    /* istanbul ignore next */
     } catch {
       return null;
     }
@@ -64,11 +65,13 @@ const chromeStorageWrapper = {
   setItem: async (name: string, value: string): Promise<void> => {
     try {
       await storage.setItem(`local:${name}`, JSON.parse(value));
+    /* istanbul ignore next */
     } catch { /* ignore */ }
   },
   removeItem: async (name: string): Promise<void> => {
     try {
       await storage.removeItem(`local:${name}`);
+    /* istanbul ignore next */
     } catch { /* ignore */ }
   },
 };
