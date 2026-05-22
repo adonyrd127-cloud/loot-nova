@@ -149,9 +149,12 @@ export default defineContentScript({
 
         // Epic es SPA — detectar cambios cada 5 segundos
         let lastLoginState: boolean | null = null;
+        let cachedNav: Element | null = null;
         setInterval(async () => {
-          const nav = document.querySelector('egs-navigation');
-          const current = nav?.getAttribute('isloggedin') === 'true';
+          if (!cachedNav || !document.contains(cachedNav)) {
+            cachedNav = document.querySelector('egs-navigation');
+          }
+          const current = cachedNav?.getAttribute('isloggedin') === 'true';
           
           if (current !== lastLoginState) {
             lastLoginState = current;
