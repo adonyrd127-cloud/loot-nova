@@ -4,24 +4,18 @@ import {FreeGame} from "@/entrypoints/types/freeGame.ts";
 import {ClaimedGame} from "@/entrypoints/types/claimedGame.ts";
 import {Platforms} from "@/entrypoints/enums/platforms.ts";
 import {ClaimFrequency, ClaimFrequencyMinutes} from "@/entrypoints/enums/claimFrequency.ts";
-import {parse} from 'node-html-parser';
 import {browser} from "wxt/browser";
-import {EpicElement, EpicKeyImage, EpicSearchResponse} from "@/entrypoints/types/epicGame.ts";
 import {sendClaimNotification, sendNewGamesNotification, sendSessionExpiredNotification} from "@/entrypoints/utils/helpers.ts";
 import {fetchRetailPrice} from "@/entrypoints/utils/priceService.ts";
 import {logger} from "@/entrypoints/utils/logger.ts";
 import {validateGameUrl} from "@/entrypoints/utils/urlValidator.ts";
-import {sanitizeGameTitle, sanitizeUrl} from "@/entrypoints/utils/sanitize.ts";
-import {EpicSearchResponseSchema} from "@/entrypoints/types/validators.ts";
 import {PlatformOrchestrator} from "@/entrypoints/services/PlatformOrchestrator.ts";
 import {registry} from "@/entrypoints/platforms/PlatformRegistry.ts";
+import { EpicPlatform } from "@/entrypoints/platforms/EpicPlatform.ts";
 import pLimit from "p-limit";
 
 const orchestrator = new PlatformOrchestrator(registry);
 
-const EPIC_API_URL    = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
-const EPIC_GAMES_URL  = "https://store.epicgames.com/";
-const STEAM_GAMES_URL = "https://store.steampowered.com/search/?sort_by=Price_ASC&maxprice=free&category1=998&specials=1&ndl=1";
 // Amazon Gaming now lives at luna.amazon.com — gaming.amazon.com redirects there.
 // We open the home page and let the content script scrape + claim.
 const AMAZON_GAMES_URL = "https://luna.amazon.com/claims/home";
@@ -273,9 +267,34 @@ export default defineBackground({
 
     if (epicCheck) {
       promises.push(
-        this.getEpicGamesList(true).catch(async (e: unknown) => {
-          logger.error('getEpicGamesList failed', { platform: 'epic' }, e as Error);
-        })
+        (async () => {
+          try {
+            const epicPlatform = registry.get('epic') as EpicPlatform;
+            if (epicPlatform) {
+              const { freeGames, futureGames } = await epicPlatform.fetchGamesAndFuture();
+
+              if (futureGames && futureGames.length > 0) {
+                await setStorageItem("futureGames", futureGames);
+              }
+
+              if (freeGames && freeGames.length > 0) {
+                const currFreeGames: FreeGame[] = (await getStorageItem("epicGames")) || [];
+                const currTitles = new Set(currFreeGames.map(g => g?.title));
+                const newGames = freeGames.filter((game) => !currTitles.has(game?.title));
+
+                if (newGames.length > 0) {
+                  await setStorageItem("epicGames", freeGames);
+                  sendNewGamesNotification(newGames.length);
+                  await this.claimGames(freeGames); // Pass all valid free games to attempt claims
+                }
+              } else {
+                 await setStorageItem("epicGames", []);
+              }
+            }
+          } catch (e) {
+            logger.error('getEpicGamesList failed', { platform: 'epic' }, e as Error);
+          }
+        })()
       );
     }
 
@@ -283,9 +302,44 @@ export default defineBackground({
 
     if (steamCheck) {
       promises.push(
-        this.getSteamGamesList(true).catch(async (e: unknown) => {
-          logger.error('getSteamGamesList failed', { platform: 'steam' }, e as Error);
-        })
+        (async () => {
+          try {
+            const steamPlatform = registry.get('steam');
+            if (steamPlatform) {
+              console.log('[LootNova/Steam] Fetching free games list...');
+              const gamesArr = await steamPlatform.fetchFreeGames();
+              if (gamesArr && gamesArr.length > 0) {
+                // Always update the detected games list
+                await setStorageItem('steamGames', gamesArr);
+
+                // Filter out games that were already successfully claimed (in history)
+                const claimedHistory: Array<{ title?: string; platform?: string }> =
+                    (await getStorageItem("claimedHistory")) ?? [];
+                const claimedTitles = new Set(
+                    claimedHistory
+                        .filter(h => h.platform === Platforms.Steam)
+                        .map(h => h.title)
+                );
+                console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
+                const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
+
+                console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
+
+                if (unclaimedGames.length > 0) {
+                  sendNewGamesNotification(unclaimedGames.length);
+                  console.log('[LootNova/Steam] Starting claim process...');
+                  await this.claimGames(unclaimedGames);
+                } else {
+                  console.log('[LootNova/Steam] All games already claimed.');
+                }
+              } else {
+                console.log('[LootNova/Steam] No free games found on search page.');
+              }
+            }
+          } catch (e) {
+            logger.error('getSteamGamesList failed', { platform: 'steam' }, e as Error);
+          }
+        })()
       );
     }
 
@@ -581,155 +635,6 @@ export default defineBackground({
       browser.action.setBadgeBackgroundColor({ color: "#f59e0b" });
       void this.setBadgeText("New");
     }
-  },
-
-  async getEpicGamesList(shouldClaim: boolean = true) {
-    const response = await fetch(EPIC_API_URL);
-    if (!response.ok) {
-      logger.error("Failed to fetch Epic Games data", { platform: 'epic' }, new Error(response.statusText));
-      return;
-    }
-    const rawData = await response.json();
-    const parsed = EpicSearchResponseSchema.safeParse(rawData);
-    
-    if (!parsed.success) {
-      logger.warn('Invalid Epic game data received', { platform: 'epic', errors: parsed.error.errors });
-      return;
-    }
-
-    const data = parsed.data;
-    const games: EpicElement[] = (data?.data?.Catalog?.searchStore?.elements as unknown as EpicElement[]) ?? [];
-
-    const freeGames = games.filter((game) =>
-        game.price?.totalPrice?.discountPrice === 0 &&
-        (game.promotions?.promotionalOffers?.length ?? 0) > 0
-    );
-    const futureFreeGames = games.filter((game) =>
-        game.promotions?.upcomingPromotionalOffers?.[0]?.promotionalOffers?.[0]?.discountSetting?.discountPercentage === 0
-    );
-
-    const currFreeGames: FreeGame[] = (await getStorageItem("epicGames")) || [];
-    const currTitles = new Set(currFreeGames.map(g => g?.title));
-    const newGames = freeGames.filter((game) => !currTitles.has(game?.title));
-
-    if (newGames.length > 0) {
-      const formattedNewGames = newGames.map(g => this.formatEpicFreeGame(g, false));
-      await setStorageItem("epicGames", formattedNewGames);
-      sendNewGamesNotification(newGames.length);
-      if (shouldClaim) await this.claimGames(formattedNewGames);
-    }
-    if (futureFreeGames.length > 0) {
-      const formattedFutureGames = futureFreeGames.map(g => this.formatEpicFreeGame(g, true));
-      await setStorageItem("futureGames", formattedFutureGames);
-    }
-  },
-
-  formatEpicFreeGame(game: EpicElement, future: boolean): FreeGame {
-    const epicSlug =
-        game.productSlug ||
-        game.catalogNs?.mappings?.[0]?.pageSlug ||
-        game.offerMappings?.[0]?.pageSlug ||
-        "";
-    const isEpicBundle = Array.isArray(game.categories) && game.categories.some((c) => c?.path === "bundles");
-    const path  = isEpicBundle ? "bundle" : "p";
-    const promo = (future
-        ? game.promotions?.upcomingPromotionalOffers?.[0]?.promotionalOffers?.[0]
-        : game.promotions?.promotionalOffers?.[0]?.promotionalOffers?.[0]) ?? {};
-    const originalPrice = game.price?.totalPrice?.originalPrice;
-    const retailPrice = (originalPrice != null && originalPrice > 0) ? originalPrice / 100 : undefined;
-
-    return {
-      title: sanitizeGameTitle(game.title ?? ""),
-      platform: Platforms.Epic,
-      link: sanitizeUrl(`https://www.epicgames.com/store/en-US/${path}/${epicSlug}`),
-      img:
-          game.keyImages?.find((img: EpicKeyImage) => img.type === "Thumbnail")?.url ||
-          game.keyImages?.[0]?.url ||
-          "/icon/128.png",
-      description: game.description ?? "",
-      startDate: new Date(promo.startDate ?? 0).toISOString(),
-      endDate:   new Date(promo.endDate ?? 0).toISOString(),
-      future,
-      retailPrice,
-    };
-  },
-
-  async getSteamGamesList(shouldClaim: boolean = true): Promise<boolean> {
-    console.log('[LootNova/Steam] Fetching free games list...');
-    const html = await fetch(STEAM_GAMES_URL).then(r => r.text());
-    console.log(`[LootNova/Steam] Fetched HTML (${html.length} chars)`);
-    const root = parse(html);
-    const resolveUrl = (u: string) =>
-        u ? new URL(u, 'https://store.steampowered.com').toString() : '';
-
-    const container = root.querySelector('div#search_result_container');
-    const freeGameNodes = container ? container.querySelectorAll('a.search_result_row') : [];
-    console.log(`[LootNova/Steam] Found ${freeGameNodes.length} search result nodes`);
-    if (freeGameNodes.length === 0) {
-      console.log('[LootNova/Steam] No free games found on search page.');
-      return false;
-    }
-
-    const gamesArr: FreeGame[] = [];
-    for (const node of freeGameNodes) {
-      const href  = node.getAttribute('href') ?? '';
-      const rawTitle = node.querySelector('span.title')?.text?.trim() ?? '';
-      const title = sanitizeGameTitle(rawTitle);
-      const imgEl = node.querySelector('img');
-      const imgRaw =
-          imgEl?.getAttribute('src')?.trim() ||
-          imgEl?.getAttribute('data-src')?.trim() ||
-          imgEl?.getAttribute('data-lazy')?.trim() || '';
-
-      const priceEl = node.querySelector('.discount_original_price');
-      let retailPrice: number | undefined;
-      if (priceEl) {
-        const priceText = priceEl.text.trim().replace(/[^\d.,]/g, '').replace(',', '.');
-        retailPrice = parseFloat(priceText) || undefined;
-      }
-
-      if (href && title) {
-        gamesArr.push({
-          link: sanitizeUrl(resolveUrl(href)),
-          img: imgRaw ? sanitizeUrl(resolveUrl(imgRaw)) : '',
-          title,
-          platform: Platforms.Steam,
-          retailPrice,
-        });
-      }
-    }
-
-    console.log(`[LootNova/Steam] Parsed ${gamesArr.length} games:`, gamesArr.map(g => g.title));
-
-    if (gamesArr.length === 0) return false;
-
-    // Always update the detected games list
-    await setStorageItem('steamGames', gamesArr);
-
-    // Filter out games that were already successfully claimed (in history)
-    const claimedHistory: Array<{ title?: string; platform?: string }> =
-        (await getStorageItem("claimedHistory")) ?? [];
-    const claimedTitles = new Set(
-        claimedHistory
-            .filter(h => h.platform === Platforms.Steam)
-            .map(h => h.title)
-    );
-    console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
-    const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
-
-    console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
-
-    if (unclaimedGames.length === 0) {
-      console.log('[LootNova/Steam] All games already claimed.');
-      return false;
-    }
-
-    sendNewGamesNotification(unclaimedGames.length);
-    if (shouldClaim) {
-      console.log('[LootNova/Steam] Starting claim process...');
-      await this.claimGames(unclaimedGames);
-    }
-    return true;
   },
 
   async clearGamesList() {

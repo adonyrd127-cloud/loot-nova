@@ -83,8 +83,13 @@ describe('EpicPlatform', () => {
       expect(games).toHaveLength(1);
       expect(games[0]).toEqual({
         title: 'Free Game Title!',
-        link: 'https://store.epicgames.com/p/free-game',
-        img: 'https://image.url/', // sanitizeUrl adds trailing slash
+        description: "",
+        startDate: "2023-01-01T00:00:00.000Z",
+        endDate: "2023-01-08T00:00:00.000Z",
+        future: false,
+        retailPrice: 19.99,
+        link: 'https://www.epicgames.com/store/en-US/p/free-game',
+        img: 'https://image.url', // sanitizeUrl adds trailing slash
         platform: Platforms.Epic
       });
       expect(mockFetch).toHaveBeenCalledWith("https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US");

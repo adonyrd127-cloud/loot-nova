@@ -20,19 +20,38 @@ export class SteamPlatform extends BasePlatform {
       
       const html = await response.text();
       const root = parse(html);
+      const resolveUrl = (u: string) =>
+        u ? new URL(u, 'https://store.steampowered.com').toString() : '';
       
-      const gameRows = root.querySelectorAll('a.search_result_row:not(.ds_owned)');
+      // Not filtering by .ds_owned here to match old behavior
+      // Will rely on the background check against claimedHistory
+      const gameRows = root.querySelectorAll('a.search_result_row');
       const parsedGames: FreeGame[] = [];
       
       for (const row of gameRows) {
         const titleEl = row.querySelector('span.title');
         const imgEl = row.querySelector('img');
-        if (titleEl && imgEl) {
+        const href = row.getAttribute('href') ?? '';
+
+        const imgRaw =
+          imgEl?.getAttribute('src')?.trim() ||
+          imgEl?.getAttribute('data-src')?.trim() ||
+          imgEl?.getAttribute('data-lazy')?.trim() || '';
+
+        const priceEl = row.querySelector('.discount_original_price');
+        let retailPrice: number | undefined;
+        if (priceEl) {
+          const priceText = priceEl.text.trim().replace(/[^\d.,]/g, '').replace(',', '.');
+          retailPrice = parseFloat(priceText) || undefined;
+        }
+
+        if (titleEl && href) {
           parsedGames.push({
             title: sanitizeGameTitle(titleEl.text),
-            link: sanitizeUrl(row.getAttribute('href') || ''),
-            img: sanitizeUrl(imgEl.getAttribute('src') || ''),
-            platform: Platforms.Steam
+            link: sanitizeUrl(resolveUrl(href)),
+            img: imgRaw ? sanitizeUrl(resolveUrl(imgRaw)) : '',
+            platform: Platforms.Steam,
+            retailPrice,
           });
         }
       }
