@@ -13,12 +13,12 @@ export class EpicPlatform extends BasePlatform {
   private readonly API_URL = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions?locale=en-US";
   private readonly STORE_URL = "https://store.epicgames.com/";
 
-  async fetchFreeGames(): Promise<FreeGame[]> {
+  async fetchGamesAndFuture(): Promise<{ freeGames: FreeGame[], futureGames: FreeGame[] }> {
     try {
       const response = await fetch(this.API_URL);
       if (!response.ok) {
         logger.error("Failed to fetch Epic Games data", { platform: 'epic' }, new Error(response.statusText));
-        return [];
+        return { freeGames: [], futureGames: [] };
       }
       
       const rawData = await response.json();
@@ -26,40 +26,64 @@ export class EpicPlatform extends BasePlatform {
       
       if (!parsed.success) {
         logger.warn('Invalid Epic game data received', { platform: 'epic', errors: parsed.error.errors });
-        return [];
+        return { freeGames: [], futureGames: [] };
       }
 
       const data = parsed.data;
       const games: EpicElement[] = (data?.data?.Catalog?.searchStore?.elements as unknown as EpicElement[]) ?? [];
 
-      const freeGames = games.filter((game) =>
+      const freeGamesRaw = games.filter((game) =>
           game.price?.totalPrice?.discountPrice === 0 &&
-          game.promotions?.promotionalOffers &&
-          game.promotions.promotionalOffers.length > 0 &&
-          game.promotions.promotionalOffers[0].promotionalOffers &&
-          game.promotions.promotionalOffers[0].promotionalOffers.length > 0
+          (game.promotions?.promotionalOffers?.length ?? 0) > 0
       );
 
-      const parsedGames: FreeGame[] = [];
-      for (const game of freeGames) {
-        const title = sanitizeGameTitle(game.title);
-        const urlSlug = game.catalogNs?.mappings?.[0]?.pageSlug || game.productSlug || game.urlSlug || game.offerMappings?.[0]?.pageSlug;
-        const link = sanitizeUrl(`${this.STORE_URL}p/${urlSlug}`);
-        const heroImage = game.keyImages?.find(img => img.type === "OfferImageWide")?.url || game.keyImages?.[0]?.url;
-        
-        parsedGames.push({
-          title,
-          link,
-          img: sanitizeUrl(heroImage || ""),
-          platform: Platforms.Epic
-        });
-      }
+      const futureFreeGamesRaw = games.filter((game) =>
+          game.promotions?.upcomingPromotionalOffers?.[0]?.promotionalOffers?.[0]?.discountSetting?.discountPercentage === 0
+      );
 
-      return parsedGames;
+      const freeGames = freeGamesRaw.map(g => this.formatEpicFreeGame(g, false));
+      const futureGames = futureFreeGamesRaw.map(g => this.formatEpicFreeGame(g, true));
+
+      return { freeGames, futureGames };
     } catch (e) {
       logger.error("Error fetching Epic games", { platform: 'epic' }, e as Error);
-      return [];
+      return { freeGames: [], futureGames: [] };
     }
+  }
+
+  async fetchFreeGames(): Promise<FreeGame[]> {
+    const { freeGames } = await this.fetchGamesAndFuture();
+    return freeGames;
+  }
+
+  formatEpicFreeGame(game: EpicElement, future: boolean): FreeGame {
+    const epicSlug =
+        game.productSlug ||
+        game.catalogNs?.mappings?.[0]?.pageSlug ||
+        game.offerMappings?.[0]?.pageSlug ||
+        "";
+    const isEpicBundle = Array.isArray(game.categories) && game.categories.some((c) => c?.path === "bundles");
+    const path  = isEpicBundle ? "bundle" : "p";
+    const promo = (future
+        ? game.promotions?.upcomingPromotionalOffers?.[0]?.promotionalOffers?.[0]
+        : game.promotions?.promotionalOffers?.[0]?.promotionalOffers?.[0]) ?? {};
+    const originalPrice = game.price?.totalPrice?.originalPrice;
+    const retailPrice = (originalPrice != null && originalPrice > 0) ? originalPrice / 100 : undefined;
+
+    return {
+      title: sanitizeGameTitle(game.title ?? ""),
+      platform: Platforms.Epic,
+      link: sanitizeUrl(`https://www.epicgames.com/store/en-US/${path}/${epicSlug}`),
+      img:
+          game.keyImages?.find((img) => img.type === "Thumbnail")?.url ||
+          game.keyImages?.[0]?.url ||
+          "/icon/128.png",
+      description: game.description ?? "",
+      startDate: new Date(promo.startDate ?? 0).toISOString(),
+      endDate:   new Date(promo.endDate ?? 0).toISOString(),
+      future,
+      retailPrice,
+    };
   }
 
   async checkLoginStatus(): Promise<boolean | null> {
