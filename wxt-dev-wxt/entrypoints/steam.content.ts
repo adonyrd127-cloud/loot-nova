@@ -62,7 +62,6 @@ export default defineContentScript({
                 freeGames: gamesArr,
                 loggedIn: isLoggedIn
             };
-            // FIX: removed console.log(freeGamesResponse) that was leaking session data to devtools
             await browser.runtime.sendMessage({
                 target: 'background',
                 action: 'claimFreeGames',
