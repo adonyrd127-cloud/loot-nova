@@ -63,10 +63,6 @@ export default defineBackground({
     void this.initializeAlarms();
     void this.initializeSessionAlarm();
 
-    // Always schedule a startup claim when the service worker initializes.
-    // This covers: cold browser start, extension update, SW restart by Chrome.
-    void browser.alarms.create("startupClaim", { delayInMinutes: 0.1 });
-    console.log('[LootNova] Service worker initialized — startup alarm scheduled.');
   },
 
   async handleStartup() {
@@ -278,14 +274,24 @@ export default defineBackground({
               }
 
               if (freeGames && freeGames.length > 0) {
-                const currFreeGames: FreeGame[] = (await getStorageItem("epicGames")) || [];
-                const currTitles = new Set(currFreeGames.map(g => g?.title));
-                const newGames = freeGames.filter((game) => !currTitles.has(game?.title));
+                // Save all Epic games to epicGames storage for UI display
+                await setStorageItem("epicGames", freeGames);
 
-                if (newGames.length > 0) {
-                  await setStorageItem("epicGames", freeGames);
-                  sendNewGamesNotification(newGames.length);
-                  await this.claimGames(freeGames); // Pass all valid free games to attempt claims
+                // Filter against claimedHistory to find unclaimed ones
+                const claimedHistory: ClaimedGame[] = (await getStorageItem("claimedHistory")) ?? [];
+                const claimedTitles = new Set(
+                  claimedHistory
+                    .filter(h => h.platform === Platforms.Epic || h.platform === 'Epic Games')
+                    .map(h => h.title.toLowerCase())
+                );
+
+                const unclaimedGames = freeGames.filter(game => !claimedTitles.has(game.title.toLowerCase()));
+
+                if (unclaimedGames.length > 0) {
+                  sendNewGamesNotification(unclaimedGames.length);
+                  await this.claimGames(unclaimedGames);
+                } else {
+                  console.log('[LootNova/Epic] All Epic games already claimed.');
                 }
               } else {
                  await setStorageItem("epicGames", []);
@@ -316,16 +322,27 @@ export default defineBackground({
             if (gogPlatform) {
               const games = await gogPlatform.fetchFreeGames();
               if (games && games.length > 0) {
-                // Check if already claimed/known
-                const currFreeGames: FreeGame[] = (await getStorageItem('gogGames')) || [];
-                const currTitles = new Set(currFreeGames.map(g => g?.title));
-                const newGames = games.filter(game => !currTitles.has(game?.title));
+                // Save all GOG games to gogGames storage for UI display
+                await setStorageItem('gogGames', games);
+
+                // Filter against claimedHistory
+                const claimedHistory: ClaimedGame[] = (await getStorageItem("claimedHistory")) ?? [];
+                const claimedTitles = new Set(
+                  claimedHistory
+                    .filter(h => h.platform === Platforms.Gog || h.platform === 'GOG')
+                    .map(h => h.title.toLowerCase())
+                );
+
+                const unclaimedGames = games.filter(game => !claimedTitles.has(game.title.toLowerCase()));
                 
-                if (newGames.length > 0) {
-                  await setStorageItem('gogGames', newGames);
-                  sendNewGamesNotification(newGames.length);
-                  await this.claimGames(newGames);
+                if (unclaimedGames.length > 0) {
+                  sendNewGamesNotification(unclaimedGames.length);
+                  await this.claimGames(unclaimedGames);
+                } else {
+                  console.log('[LootNova/GOG] All GOG games already claimed.');
                 }
+              } else {
+                await setStorageItem('gogGames', []);
               }
             }
           } catch (e) {
@@ -356,10 +373,35 @@ export default defineBackground({
   },
 
   async claimGames(games: FreeGame[]) {
-    void this.setBadgeText(games.length.toString());
+    const claimedHistory: ClaimedGame[] = (await getStorageItem("claimedHistory")) ?? [];
+    const claimedKeys = new Set(
+      claimedHistory.map(h => `${h.title.toLowerCase()}|${String(h.platform).toLowerCase()}`)
+    );
+
+    const gamesToClaim = games.filter(game => {
+      const key = `${game.title.toLowerCase()}|${String(game.platform).toLowerCase()}`;
+      const platformStr = String(game.platform).toLowerCase();
+      const isAlreadyClaimed = claimedKeys.has(key) ||
+        (platformStr.includes('epic') && claimedHistory.some(h => h.title.toLowerCase() === game.title.toLowerCase() && String(h.platform).toLowerCase().includes('epic'))) ||
+        (platformStr.includes('steam') && claimedHistory.some(h => h.title.toLowerCase() === game.title.toLowerCase() && String(h.platform).toLowerCase().includes('steam'))) ||
+        (platformStr.includes('gog') && claimedHistory.some(h => h.title.toLowerCase() === game.title.toLowerCase() && String(h.platform).toLowerCase().includes('gog'))) ||
+        (platformStr.includes('amazon') && claimedHistory.some(h => h.title.toLowerCase() === game.title.toLowerCase() && String(h.platform).toLowerCase().includes('amazon')));
+
+      if (isAlreadyClaimed) {
+        console.log(`[LootNova/Claim] "${game.title}" (${game.platform}) is already in claimedHistory. Skipping claim tab.`);
+      }
+      return !isAlreadyClaimed;
+    });
+
+    if (gamesToClaim.length === 0) {
+      console.log('[LootNova/Claim] No new unclaimed games to claim in this batch.');
+      return;
+    }
+
+    void this.setBadgeText(gamesToClaim.length.toString());
     const limit = pLimit(3);
 
-    await Promise.all(games.map(game => limit(async () => {
+    await Promise.all(gamesToClaim.map(game => limit(async () => {
       try {
         console.log(`[LootNova/Claim] Attempting: "${game.title}" (${game.platform}) — ${game.link}`);
 
@@ -616,11 +658,11 @@ export default defineBackground({
           (await getStorageItem("claimedHistory")) ?? [];
       const claimedTitles = new Set(
           claimedHistory
-              .filter(h => h.platform === Platforms.Steam)
-              .map(h => h.title)
+               .filter(h => String(h.platform).toLowerCase() === 'steam')
+               .map(h => h.title?.toLowerCase() ?? '')
       );
       console.log(`[LootNova/Steam] Already claimed Steam titles:`, [...claimedTitles]);
-      const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title));
+      const unclaimedGames = gamesArr.filter(game => !claimedTitles.has(game.title?.toLowerCase()));
 
       console.log(`[LootNova/Steam] Unclaimed games: ${unclaimedGames.length}`, unclaimedGames.map(g => g.title));
 
