@@ -1,4 +1,10 @@
 import { Platforms } from '@/entrypoints/enums/platforms';
+import {
+  IconSteam,
+  IconEpic,
+  IconAmazon,
+  IconGog,
+} from './icons/Icons';
 
 interface PlatformCardProps {
   platform: string;
@@ -6,33 +12,50 @@ interface PlatformCardProps {
   connected: boolean;
   gamesAvailable: number;
   sessionExpired?: boolean;
-  onClick?: () => void;
 }
 
-const CFG: Record<string, { emoji: string; cls: string }> = {
-  [Platforms.Epic]:   { emoji: '🟣', cls: 'ln-plat-purple' },
-  [Platforms.Amazon]: { emoji: '🟠', cls: 'ln-plat-amber' },
-  [Platforms.Steam]:  { emoji: '🔵', cls: 'ln-plat-cyan' },
-};
+export function PlatformCard({
+  platform,
+  name,
+  connected,
+  gamesAvailable,
+  sessionExpired,
+}: PlatformCardProps) {
+  let IconComponent = IconSteam;
+  let iconColor = 'var(--ln-steam)';
 
-export function PlatformCard({ platform, name, connected, gamesAvailable, sessionExpired, onClick }: PlatformCardProps) {
-  const cfg = CFG[platform] ?? { emoji: '⚪', cls: 'ln-plat-cyan' };
+  if (platform === Platforms.Epic) {
+    IconComponent = IconEpic;
+    iconColor = 'var(--ln-epic)';
+  } else if (platform === Platforms.Amazon) {
+    IconComponent = IconAmazon;
+    iconColor = 'var(--ln-amazon)';
+  } else if (platform === Platforms.Gog) {
+    IconComponent = IconGog;
+    iconColor = 'var(--ln-gog)';
+  }
+
+  let statusClass = 'ln-dot-unknown';
+  let statusText = browser.i18n.getMessage('platform_unknown') || 'Sin conectar';
+
+  if (connected) {
+    statusClass = 'ln-dot-connected';
+    statusText = browser.i18n.getMessage('platform_connected') || 'Conectado';
+  } else if (sessionExpired) {
+    statusClass = 'ln-dot-expired';
+    statusText = browser.i18n.getMessage('platform_expired') || 'Sesión expirada';
+  }
 
   return (
-    <div
-      onClick={onClick}
-      className={`ln-platform-card ${sessionExpired ? 'expired' : ''}`}
-    >
-      {sessionExpired && <span className="ln-expired-dot" />}
-      <div className={`ln-plat-icon ${cfg.cls}`}>{cfg.emoji}</div>
-      <div className="ln-plat-info">
-        <div className="ln-plat-name">{name}</div>
-        <div className="ln-plat-status">
-          <span className={`ln-status-dot ${connected ? 'ok' : 'warn'}`} />
-          {connected ? 'Conectado' : 'Sesión expirada'}
-        </div>
-      </div>
-      <div className="ln-plat-count">{gamesAvailable}</div>
+    <div className="ln-platform-pill" title={`${name}: ${statusText}`}>
+      <span className="ln-platform-pill-icon" style={{ color: iconColor }}>
+        <IconComponent size={16} />
+      </span>
+      <span className="ln-platform-pill-name">{name}</span>
+      <span className={`ln-platform-pill-dot ${statusClass}`} />
+      <span className="ln-platform-pill-count">{gamesAvailable}</span>
     </div>
   );
 }
+
+export default PlatformCard;

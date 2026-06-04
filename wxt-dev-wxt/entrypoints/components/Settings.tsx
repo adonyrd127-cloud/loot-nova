@@ -1,35 +1,72 @@
 import { useStorage } from "@/entrypoints/hooks/useStorage.ts";
 import { ClaimFrequency } from "@/entrypoints/enums/claimFrequency.ts";
 import { MessageRequest } from "@/entrypoints/types/messageRequest.ts";
+import {
+  IconSteam,
+  IconEpic,
+  IconAmazon,
+  IconGog,
+  IconBell,
+  IconShield,
+  IconStar,
+  IconChevronDown,
+} from './icons/Icons';
 
-function Toggle({ active, onClick }: { active: boolean; onClick: () => void }) {
+interface ToggleProps {
+  active: boolean;
+  onChange: () => void;
+  id: string;
+}
+
+function Toggle({ active, onChange, id }: ToggleProps) {
   return (
-    <div onClick={onClick} className={`ln-toggle ${active ? 'active' : ''}`}>
-      <div className="ln-toggle-knob" />
-    </div>
+    <label className="ln-toggle" htmlFor={id}>
+      <input
+        type="checkbox"
+        id={id}
+        checked={active}
+        onChange={onChange}
+        role="switch"
+        aria-checked={active}
+      />
+      <span className="ln-toggle-track" />
+    </label>
   );
 }
 
-function SettingsGroup({ title, children }: { title?: string; children: React.ReactNode }) {
+interface SettingsGroupProps {
+  title?: string;
+  children: React.ReactNode;
+}
+
+function SettingsGroup({ title, children }: SettingsGroupProps) {
   return (
     <div className="ln-settings-group">
-      {title && (
-        <div className="ln-section-header">
-          <span>{title}</span>
-          <span className="ln-section-line" />
-        </div>
-      )}
-      <div className="ln-settings-box">{children}</div>
+      {title && <div className="ln-settings-header">{title}</div>}
+      <div className="ln-settings-card">{children}</div>
     </div>
   );
 }
 
-function SettingsItem({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
+interface SettingsItemProps {
+  label: string;
+  description?: string;
+  icon: React.ReactNode;
+  iconBgClass: string;
+  children: React.ReactNode;
+}
+
+function SettingsItem({ label, description, icon, iconBgClass, children }: SettingsItemProps) {
   return (
     <div className="ln-settings-item">
-      <div>
-        <div className="ln-settings-label">{label}</div>
-        {description && <div className="ln-settings-desc">{description}</div>}
+      <div className="ln-settings-item-left">
+        <div className={`ln-settings-item-icon ${iconBgClass}`}>
+          {icon}
+        </div>
+        <div className="ln-settings-item-text">
+          <div className="ln-settings-item-name">{label}</div>
+          {description && <div className="ln-settings-item-desc">{description}</div>}
+        </div>
       </div>
       {children}
     </div>
@@ -47,7 +84,7 @@ function getFrequencyLabel(f: ClaimFrequency) {
   }
 }
 
-function Settings() {
+export function Settings() {
   const [steamCheck, setSteamCheck]   = useStorage<boolean>("steamCheck", true);
   const [epicCheck, setEpicCheck]     = useStorage<boolean>("epicCheck", true);
   const [amazonCheck, setAmazonCheck] = useStorage<boolean>("amazonCheck", true);
@@ -56,70 +93,129 @@ function Settings() {
   const [notificationsEnabled, setNotificationsEnabled] = useStorage<boolean>("notificationsEnabled", true);
   const [sessionMonitoring, setSessionMonitoring] = useStorage<boolean>("sessionMonitoring", true);
   const [animationsEnabled, setAnimationsEnabled] = useStorage<boolean>("animationsEnabled", true);
-  const [language, setLanguage] = useStorage<string>("language", "es");
+
+  const extensionVersion = browser.runtime.getManifest().version;
 
   function handleFrequency(f: ClaimFrequency) {
     setClaimFrequency(f);
-    sendMessage({ action: "updateFrequency", target: "background" });
-  }
-
-  function sendMessage(req: MessageRequest) {
-    browser.runtime.sendMessage(req);
+    browser.runtime.sendMessage({ action: "updateFrequency", target: "background" } as MessageRequest);
   }
 
   return (
     <div className="ln-fade-in">
-      <SettingsGroup title="Plataformas">
-        <SettingsItem label="🟣 Epic Games" description="Reclamar juegos gratis automáticamente">
-          <Toggle active={epicCheck} onClick={() => setEpicCheck(!epicCheck)} />
+      {/* Platforms Settings */}
+      <SettingsGroup title={browser.i18n.getMessage("settings_platforms") || "Platforms"}>
+        <SettingsItem 
+          label={browser.i18n.getMessage("epicPlatform") || "Epic Games"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconEpic size={18} />}
+          iconBgClass="ln-bg-epic"
+        >
+          <Toggle id="toggle-epic" active={epicCheck} onChange={() => setEpicCheck(!epicCheck)} />
         </SettingsItem>
-        <SettingsItem label="🟠 Amazon Prime Gaming" description="Incluye redención de claves GOG">
-          <Toggle active={amazonCheck} onClick={() => setAmazonCheck(!amazonCheck)} />
+
+        <SettingsItem 
+          label={browser.i18n.getMessage("amazonPlatform") || "Amazon Gaming"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconAmazon size={18} />}
+          iconBgClass="ln-bg-amazon"
+        >
+          <Toggle id="toggle-amazon" active={amazonCheck} onChange={() => setAmazonCheck(!amazonCheck)} />
         </SettingsItem>
-        <SettingsItem label="🔵 Steam" description="Reclamar ofertas gratuitas">
-          <Toggle active={steamCheck} onClick={() => setSteamCheck(!steamCheck)} />
+
+        <SettingsItem 
+          label={browser.i18n.getMessage("steamPlatform") || "Steam"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconSteam size={18} />}
+          iconBgClass="ln-bg-steam"
+        >
+          <Toggle id="toggle-steam" active={steamCheck} onChange={() => setSteamCheck(!steamCheck)} />
         </SettingsItem>
-        <SettingsItem label="⚪ GOG" description="Redención automática de claves">
-          <Toggle active={gogCheck} onClick={() => setGogCheck(!gogCheck)} />
+
+        <SettingsItem 
+          label={browser.i18n.getMessage("gogPlatform") || "GOG"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconGog size={18} />}
+          iconBgClass="ln-bg-gog"
+        >
+          <Toggle id="toggle-gog" active={gogCheck} onChange={() => setGogCheck(!gogCheck)} />
         </SettingsItem>
       </SettingsGroup>
 
-      <SettingsGroup title="Auto-Claim">
-        <SettingsItem label="Frecuencia" description="Con qué frecuencia verificar nuevos juegos">
-          <select
-            value={claimFrequency}
-            onChange={e => handleFrequency(e.target.value as ClaimFrequency)}
-            className="ln-select"
-          >
-            {Object.values(ClaimFrequency).map(f => (
-              <option key={f} value={f}>{getFrequencyLabel(f)}</option>
-            ))}
-          </select>
+      {/* Auto-Claim Settings */}
+      <SettingsGroup title={browser.i18n.getMessage("settings_autoclaim") || "Auto-Claim"}>
+        <SettingsItem 
+          label={browser.i18n.getMessage("checkFrequency") || "Check Frequency:"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconStar size={16} />}
+          iconBgClass="ln-bg-steam"
+        >
+          <div className="ln-select-wrapper">
+            <select
+              value={claimFrequency}
+              onChange={e => handleFrequency(e.target.value as ClaimFrequency)}
+              className="ln-select"
+              id="select-frequency"
+            >
+              {Object.values(ClaimFrequency).map(f => (
+                <option key={f} value={f}>{getFrequencyLabel(f)}</option>
+              ))}
+            </select>
+            <span className="ln-select-chevron">
+              <IconChevronDown size={12} />
+            </span>
+          </div>
         </SettingsItem>
-        <SettingsItem label="🔔 Notificaciones push" description="Alertar cuando hay nuevos juegos">
-          <Toggle active={notificationsEnabled} onClick={() => setNotificationsEnabled(!notificationsEnabled)} />
+
+        <SettingsItem 
+          label={browser.i18n.getMessage("settings_notifications") || "Notifications"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconBell size={16} />}
+          iconBgClass="ln-bg-amazon"
+        >
+          <Toggle id="toggle-notifications" active={notificationsEnabled} onChange={() => setNotificationsEnabled(!notificationsEnabled)} />
         </SettingsItem>
-        <SettingsItem label="🔐 Monitoreo de sesión" description="Verificar login cada 12 horas">
-          <Toggle active={sessionMonitoring} onClick={() => setSessionMonitoring(!sessionMonitoring)} />
+
+        <SettingsItem 
+          label={browser.i18n.getMessage("settings_session_monitor") || "Session Monitoring"} 
+          description={browser.i18n.getMessage("settings_session_monitor_desc") || "Alert when login sessions expire"}
+          icon={<IconShield size={16} />}
+          iconBgClass="ln-bg-epic"
+        >
+          <Toggle id="toggle-session-monitor" active={sessionMonitoring} onChange={() => setSessionMonitoring(!sessionMonitoring)} />
         </SettingsItem>
       </SettingsGroup>
 
-      <SettingsGroup title="Apariencia">
-        <SettingsItem label="🎨 Animaciones" description="Efectos visuales y transiciones">
-          <Toggle active={animationsEnabled} onClick={() => setAnimationsEnabled(!animationsEnabled)} />
+      {/* Appearance Settings */}
+      <SettingsGroup title={browser.i18n.getMessage("settings_appearance") || "Appearance"}>
+        <SettingsItem 
+          label={browser.i18n.getMessage("settings_animations") || "Animations"} 
+          description={browser.i18n.getMessage("settings_autoclaim_desc") || "Automatically claim free games"}
+          icon={<IconStar size={16} />}
+          iconBgClass="ln-bg-gog"
+        >
+          <Toggle id="toggle-animations" active={animationsEnabled} onChange={() => setAnimationsEnabled(!animationsEnabled)} />
         </SettingsItem>
       </SettingsGroup>
 
-      <div className="ln-info-block">
-        {browser.i18n.getMessage("infoLogin")}{' '}
-        <a href="https://store.steampowered.com/login/" target="_blank">Steam</a>,{' '}
-        <a href="https://www.epicgames.com/id/login" target="_blank">Epic</a>{' '}
-        {browser.i18n.getMessage("infoAnd")}{' '}
-        <a href="https://gaming.amazon.com" target="_blank">Amazon Prime Gaming</a>{' '}
-        {browser.i18n.getMessage("infoBeforeClaim")}
+      {/* Info Login instructions */}
+      <div className="ln-about">
+        <div>
+          {browser.i18n.getMessage("settings_login_info") || "Log in to each platform before claiming"}
+        </div>
+        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+          <a href="https://store.steampowered.com/login/" target="_blank" rel="noopener noreferrer">Steam</a>
+          <span>•</span>
+          <a href="https://www.epicgames.com/id/login" target="_blank" rel="noopener noreferrer">Epic</a>
+          <span>•</span>
+          <a href="https://gaming.amazon.com" target="_blank" rel="noopener noreferrer">Amazon</a>
+          <span>•</span>
+          <a href="https://www.gog.com" target="_blank" rel="noopener noreferrer">GOG</a>
+        </div>
+        <div style={{ marginTop: '16px' }} className="ln-about-version">
+          LootNova v{extensionVersion}
+        </div>
       </div>
-
-      <div className="ln-version">LootNova v1.1.1 • MIT License</div>
     </div>
   );
 }
