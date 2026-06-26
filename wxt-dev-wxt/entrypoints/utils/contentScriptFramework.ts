@@ -40,13 +40,17 @@ export class ContentScriptRunner {
    */
   async run(steps: ClaimStep[], platform: PlatformId, gameTitle?: string): Promise<void> {
     this.overlay = this.createOverlay(platform, gameTitle);
+    let success = false;
     try {
       for (const step of steps) {
         await this.executeStep(step);
       }
+      success = true;
+    } catch (e) {
+      console.error('[LootNova/Runner] Error executing steps:', e);
     } finally {
       this.removeOverlay();
-      await this.signalComplete();
+      await this.signalComplete(success);
     }
   }
 
@@ -102,9 +106,13 @@ export class ContentScriptRunner {
     this.overlay = null;
   }
 
-  private async signalComplete(): Promise<void> {
+  private async signalComplete(success: boolean = true): Promise<void> {
     try {
-      await browser.runtime.sendMessage({ target: 'background', action: 'claimComplete' });
+      await browser.runtime.sendMessage({ 
+        target: 'background', 
+        action: 'claimComplete',
+        data: { success }
+      });
     } catch (_) { /* tab may be closing */ }
   }
 

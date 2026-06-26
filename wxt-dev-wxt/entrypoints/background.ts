@@ -66,6 +66,18 @@ export default defineBackground({
   },
 
   async handleStartup() {
+    // Ensure we only run startup logic ONCE per browser session
+    try {
+      const sessionFlags = await browser.storage.session.get("startupClaimCompleted");
+      if (sessionFlags?.startupClaimCompleted) {
+        console.log('[LootNova] Startup claim already completed for this session. Skipping to avoid loops.');
+        return;
+      }
+    } catch (e) {
+      // session storage might not be supported in some environments, fail gracefully
+      console.warn('[LootNova] session.storage not supported or failed', e);
+    }
+
     // Login/session checks are best-effort — never block claiming
     try {
       await this.checkLoginStatuses();
@@ -91,6 +103,13 @@ export default defineBackground({
       const frequency = result.claimFrequency || ClaimFrequency.DAILY;
       console.log(`[LootNova] Startup claim triggered (frequency: ${frequency})`);
       await this.checkAndClaimIfDue(frequency);
+
+      // Mark the startup claim as completed for this browser session
+      try {
+        await browser.storage.session.set({ startupClaimCompleted: true });
+        console.log('[LootNova] Marked startup claim as completed for this session.');
+      } catch (e) {}
+
     } catch (e) {
       logger.error('Startup claim failed', { action: 'startup' }, e as Error);
     }
@@ -440,15 +459,105 @@ export default defineBackground({
         await this.waitForTabToLoad(tab.id);
         await browser.tabs.sendMessage(tab.id, { target: 'content', action: 'claimGames' });
 
-        // Wait for the content script to confirm the claim is done,
-        // with a generous safety timeout. Amazon SPA needs more time.
-        const isAmazon  = game.platform === 'Amazon Gaming';
+        // For Epic: the checkout "Add to library" button is inside a cross-origin iframe
+        // that the content script CANNOT access due to CORS. We use scripting.executeScript
+        // with allFrames to inject code directly into the iframe from the background.
+        const isEpic = game.platform === 'Epic';
+        const isAmazon = game.platform === 'Amazon Gaming';
+
+        if (isEpic) {
+          // Wait for the content script to click the purchase button and handle checkout
+          // The content script now waits for the dynamic iframe, so this needs a generous timeout
+          const purchaseResponse = await this.waitForContentResponse('claimComplete', 90_000, tab.id);
+          
+          // If the content script already succeeded (e.g., button was in main DOM), we're done
+          if (purchaseResponse && purchaseResponse.data?.success === true) {
+            try { await browser.tabs.remove(tab.id); } catch (_) {}
+            sendClaimNotification(game.title, game.platform);
+            await this.addToHistory(game);
+            return;
+          }
+
+          // Content script couldn't click the checkout button (cross-origin iframe).
+          // Now inject directly into ALL frames of the tab to find and click it.
+          console.log('[LootNova/Claim] Epic: Content script could not click checkout button. Injecting into iframe...');
+          
+          // Wait for the checkout iframe to fully load
+          await new Promise(r => setTimeout(r, 3000));
+
+          let clickedInIframe = false;
+          for (let attempt = 0; attempt < 10; attempt++) {
+            try {
+              const results = await browser.scripting.executeScript({
+                target: { tabId: tab.id, allFrames: true },
+                func: () => {
+                  // This runs inside EVERY frame (including the checkout iframe)
+                  const labels = [
+                    'add to library', 'agregar a la biblioteca',
+                    'place order', 'realizar pedido',
+                    'passer la commande', 'fazer o pedido'
+                  ];
+                  const buttons = document.querySelectorAll('button, a[role="button"], a');
+                  for (const btn of buttons) {
+                    const rect = (btn as HTMLElement).getBoundingClientRect();
+                    const style = window.getComputedStyle(btn as HTMLElement);
+                    const visible = rect.width > 0 && rect.height > 0 && 
+                                    style.visibility !== 'hidden' && style.display !== 'none';
+                    if (!visible) continue;
+                    
+                    const text = (btn.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                    const matches = labels.some(l => text === l || text.includes(l));
+                    
+                    if (matches || (btn as HTMLElement).classList.contains('payment-order-confirm__btn') || 
+                        (btn as HTMLElement).classList.contains('payment-confirm__btn')) {
+                      (btn as HTMLElement).scrollIntoView({ block: 'center' });
+                      (btn as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                      (btn as HTMLElement).dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                      (btn as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                      return 'clicked';
+                    }
+                  }
+                  return 'not_found';
+                }
+              });
+
+              // Check if any frame returned 'clicked'
+              if (results && results.some((r: any) => r.result === 'clicked')) {
+                console.log('[LootNova/Claim] Epic: Successfully clicked checkout button inside iframe!');
+                clickedInIframe = true;
+                // Wait for Epic to process the order
+                await new Promise(r => setTimeout(r, 8000));
+                break;
+              }
+            } catch (e) {
+              console.log('[LootNova/Claim] Epic: scripting.executeScript attempt failed:', e);
+            }
+            // Wait before retrying
+            await new Promise(r => setTimeout(r, 1500));
+          }
+
+          try { await browser.tabs.remove(tab.id); } catch (_) {}
+
+          if (clickedInIframe) {
+            sendClaimNotification(game.title, game.platform);
+            await this.addToHistory(game);
+          } else {
+            throw new Error('Could not find or click the checkout button in Epic iframe');
+          }
+          return;
+        }
+
+        // Non-Epic platforms: wait for content script as before
         const timeoutMs = isAmazon ? 30_000 : 15_000;
 
-        await this.waitForContentResponse('claimComplete', timeoutMs, tab.id);
+        const response = await this.waitForContentResponse('claimComplete', timeoutMs, tab.id);
 
         // Close the tab so the user isn't flooded with open tabs
         try { await browser.tabs.remove(tab.id); } catch (_) {}
+
+        if (!response || response.data?.success === false) {
+          throw new Error('Claim timed out or failed in content script');
+        }
 
         sendClaimNotification(game.title, game.platform);
 
@@ -629,14 +738,13 @@ export default defineBackground({
         await setStorageItem("active", true);
       }
 
-      // One-time fix: purge falsely claimed Steam entries from history.
-      // The old code had a bug where super.claimGame() returned true without
-      // actually claiming, so Steam games were added to history incorrectly.
+      // One-time fix: purge falsely claimed Epic Games entries from history.
+      // The previous timeout bug caused 404 pages to be logged as successfully claimed.
       const history: ClaimedGame[] = (await getStorageItem("claimedHistory")) ?? [];
-      const cleaned = history.filter(h => h.platform !== Platforms.Steam && h.platform !== 'Steam');
+      const cleaned = history.filter(h => h.platform !== Platforms.Epic && h.platform !== 'Epic Games');
       if (cleaned.length !== history.length) {
         await setStorageItem("claimedHistory", cleaned);
-        console.log(`[LootNova] Cleaned ${history.length - cleaned.length} false Steam entries from history.`);
+        console.log(`[LootNova] Cleaned ${history.length - cleaned.length} false Epic entries from history.`);
       }
 
       browser.action.setBadgeBackgroundColor({ color: "#f59e0b" });
@@ -696,8 +804,8 @@ export default defineBackground({
    * Resolves when the message arrives, or after `timeoutMs` (whichever comes first).
    * This replaces blind `wait(N)` timers — the content script actively signals completion.
    */
-  waitForContentResponse(actionName: string, timeoutMs: number, expectedTabId?: number): Promise<void> {
-    return new Promise<void>((resolve) => {
+  waitForContentResponse(actionName: string, timeoutMs: number, expectedTabId?: number): Promise<any> {
+    return new Promise<any>((resolve) => {
       let settled = false;
 
       const onMessage = (msg: any, sender: browser.runtime.MessageSender) => {
@@ -711,7 +819,7 @@ export default defineBackground({
         if (msg?.action === actionName || msg?.target === 'background' && msg?.action === actionName) {
           settled = true;
           browser.runtime.onMessage.removeListener(onMessage);
-          resolve();
+          resolve(msg);
         }
       };
 
@@ -724,7 +832,7 @@ export default defineBackground({
           browser.runtime.onMessage.removeListener(onMessage);
           // Changed to debug log to avoid cluttering Chrome's error console for non-critical timeouts
           logger.debug(`waitForContentResponse('${actionName}') timed out after ${timeoutMs}ms`, { action: 'timeout' });
-          resolve();
+          resolve(null);
         }
       }, timeoutMs);
     });

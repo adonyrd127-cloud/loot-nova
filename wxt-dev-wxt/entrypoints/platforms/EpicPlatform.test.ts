@@ -39,7 +39,7 @@ describe('EpicPlatform', () => {
                 {
                   title: 'Free Game Title!',
                   id: '123',
-                  productSlug: 'free-game',
+                  productSlug: 'free-game/home',
                   keyImages: [{ type: 'OfferImageWide', url: 'https://image.url' }],
                   price: {
                     totalPrice: {
@@ -88,7 +88,7 @@ describe('EpicPlatform', () => {
         endDate: "2023-01-08T00:00:00.000Z",
         future: false,
         retailPrice: 19.99,
-        link: 'https://www.epicgames.com/store/en-US/p/free-game',
+        link: 'https://store.epicgames.com/en-US/p/free-game',
         img: 'https://image.url', // sanitizeUrl adds trailing slash
         platform: Platforms.Epic
       });

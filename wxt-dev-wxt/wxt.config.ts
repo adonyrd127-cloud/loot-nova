@@ -29,6 +29,9 @@ export default defineConfig({
       // Epic Games store (cookie login check + session check)
       'https://www.epicgames.com/*',
       'https://store.epicgames.com/*',
+      // Epic checkout iframe (for scripting.executeScript into checkout)
+      'https://*.ol.epicgames.com/*',
+      'https://*.epicgames.com/*',
       // OpenCritic — game score badges
       'https://api.opencritic.com/*',
       // ProtonDB — Steam Deck compatibility badges

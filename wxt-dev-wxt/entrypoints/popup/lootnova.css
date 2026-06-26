@@ -301,13 +301,10 @@ body {
 /* ─── Platform Pills ────────────────────────────────────────── */
 .ln-platforms {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--ln-sp-2);
   margin-bottom: var(--ln-sp-4);
-  overflow-x: auto;
-  padding-bottom: var(--ln-sp-1);
 }
-
-.ln-platforms::-webkit-scrollbar { display: none; }
 
 .ln-platform-pill {
   display: flex;

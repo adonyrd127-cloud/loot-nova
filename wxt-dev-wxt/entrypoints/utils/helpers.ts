@@ -5,8 +5,16 @@ export function getRndInteger(min: number, max: number) {
     return Math.floor(Math.random() * (max - min + 1) ) + min;
 }
 
-export function isVisible(el: HTMLElement) {
-    return el && el.style && el.style.visibility !== 'hidden' && el.style.display !== 'none';
+export function isVisible(el: HTMLElement): boolean {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none'
+    );
 }
 
 export async function waitForElement(document: Document | HTMLElement, selector: string, timeout = 500, maxRetry = 10): Promise<HTMLElement | null> {
@@ -48,8 +56,10 @@ export async function clickWhenVisible(selector: string, doc: Document | HTMLEle
     realClick(el);
 }
 
-export function realClick(el: HTMLElement | null) {
+export async function realClick(el: HTMLElement | null) {
     if (el === null) return;
+    el.scrollIntoView({ block: 'center' });
+    await wait(150);
     el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

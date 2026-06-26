@@ -7,6 +7,7 @@ import {FreeGamesResponse} from "@/entrypoints/types/freeGamesResponse.ts";
 import {setStorageItem} from "@/entrypoints/hooks/useStorage.ts";
 import {
     clickWhenVisible,
+    realClick,
     incrementCounter, waitForAllElements,
     waitForElement,
     waitForPageLoad,
@@ -71,6 +72,20 @@ export default defineContentScript({
 
         async function claimCurrentFreeGame() {
             await waitForPageLoad();
+
+            // ── Age Gate / Mature Content Bypass ──────────────────────
+            // Steam shows an age verification page for mature content games.
+            // The URL is like /agecheck/app/XXXXX/ and the page has a
+            // "View Page" / "Ver página" button we need to click first.
+            const ageGateBypassed = await handleAgeGate();
+            if (ageGateBypassed) {
+                // After clicking "View Page", Steam redirects to the actual
+                // game page. We need to wait for it to fully load.
+                await waitForPageLoad();
+                // Give extra time for Steam's JS to hydrate the page
+                await wait(2000);
+            }
+
             const buyOptions = await waitForAllElements(document, "div.game_area_purchase_game");
             if (!buyOptions) return;
 
@@ -123,6 +138,88 @@ export default defineContentScript({
                     await incrementCounter();
                 }
             }], 'steam', pageTitle);
+        }
+
+        /**
+         * Detects and bypasses Steam's age verification / mature content gate.
+         * Returns true if an age gate was found and clicked, false otherwise.
+         */
+        async function handleAgeGate(): Promise<boolean> {
+            // Method 1: Check if we're on the /agecheck/ URL
+            const isAgeCheckUrl = window.location.pathname.includes('/agecheck/');
+
+            // Method 2: Check for the age gate container element on the page
+            const ageGateContainer = document.querySelector('#agegate_box')
+                || document.querySelector('.agegate_text_container')
+                || document.querySelector('#age_gate_btn_continue');
+
+            if (!isAgeCheckUrl && !ageGateContainer) {
+                return false;
+            }
+
+            console.log('[LootNova] Steam age gate detected, attempting to bypass...');
+
+            // Try clicking the "View Page" / "Ver página" button
+            // Steam uses different selectors depending on the page type:
+
+            // 1. The /agecheck/ page has an <a> with id="view_product_page_btn"
+            const viewPageBtn = document.querySelector('#view_product_page_btn') as HTMLAnchorElement | null;
+            if (viewPageBtn) {
+                console.log('[LootNova] Clicking #view_product_page_btn');
+                realClick(viewPageBtn);
+                await wait(2000);
+                return true;
+            }
+
+            // 2. Some pages use a generic "Continue" button inside #agegate_box
+            const continueBtn = document.querySelector('#age_gate_btn_continue') as HTMLElement | null;
+            if (continueBtn) {
+                console.log('[LootNova] Clicking #age_gate_btn_continue');
+                realClick(continueBtn);
+                await wait(2000);
+                return true;
+            }
+
+            // 3. Fallback: look for any <a> or <span> inside .agegate_text_container
+            //    that looks like a "View Page" link
+            const ageGateLinks = document.querySelectorAll('.agegate_text_container a, .age_gate_btn_container a');
+            for (const link of ageGateLinks) {
+                const text = link.textContent?.toLowerCase() ?? '';
+                if (text.includes('view page') || text.includes('ver página') || text.includes('continue') || text.includes('continuar')) {
+                    console.log('[LootNova] Clicking age gate link:', text.trim());
+                    realClick(link as HTMLElement);
+                    await wait(2000);
+                    return true;
+                }
+            }
+
+            // 4. Date-based age gate: some Steam pages ask for a birthday.
+            //    Select a year that makes the user 25+ and submit.
+            const yearSelect = document.querySelector('#ageYear') as HTMLSelectElement | null;
+            if (yearSelect) {
+                console.log('[LootNova] Filling date-based age gate');
+                // Set day
+                const daySelect = document.querySelector('#ageDay') as HTMLSelectElement | null;
+                if (daySelect) daySelect.value = '1';
+                // Set month
+                const monthSelect = document.querySelector('#ageMonth') as HTMLSelectElement | null;
+                if (monthSelect) monthSelect.value = 'January';
+                // Set year (25+ years old)
+                yearSelect.value = '1990';
+                // Trigger change event
+                yearSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                await wait(500);
+                // Click the submit/view button
+                const submitBtn = document.querySelector('#view_product_page_btn, .btnv6_blue_hoverfade, #age_gate_btn_continue') as HTMLElement | null;
+                if (submitBtn) {
+                    realClick(submitBtn);
+                    await wait(2000);
+                    return true;
+                }
+            }
+
+            console.log('[LootNova] Age gate detected but no bypass button found');
+            return false;
         }
 
         function isCurrentGameFree(el: { querySelector: (arg0: string) => any; }): boolean {

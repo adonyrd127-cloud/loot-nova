@@ -11,7 +11,8 @@ import {
     clickWhenVisibleIframe,
     clickWhenVisible,
     waitForPageLoad,
-    incrementCounter
+    incrementCounter,
+    isVisible
 } from "@/entrypoints/utils/helpers.ts";
 import {defineContentScript} from "wxt/utils/define-content-script";
 import {ContentScriptRunner} from "@/entrypoints/utils/contentScriptFramework.ts";
@@ -111,12 +112,125 @@ export default defineContentScript({
                 { name: 'clickPurchase', execute: () => clickWhenVisible('[data-testid="purchase-cta-button"]') },
                 { name: 'humanDelay1', execute: () => wait(getRndInteger(100, 500)) },
                 { name: 'deviceCheck', execute: tryClickDeviceNotSupportedContinue },
-                { name: 'confirmIframe', execute: () => clickWhenVisibleIframe('#webPurchaseContainer iframe', 'button.payment-btn.payment-order-confirm__btn'), timeoutMs: 10000 },
-                { name: 'humanDelay2', execute: () => wait(getRndInteger(100, 500)) },
-                { name: 'finalConfirm', execute: () => clickWhenVisibleIframe('#webPurchaseContainer iframe', 'button.payment-confirm__btn.payment-btn--primary'), timeoutMs: 10000 },
+                { name: 'checkoutOrModal', execute: handleCheckoutOrModal, timeoutMs: 60000 }
             ], 'epic', pageTitle);
 
             await incrementCounter();
+        }
+
+        function normalizeText(text: string): string {
+            return text.trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+
+        function textMatches(elText: string, labels: string[]): boolean {
+            const t = normalizeText(elText);
+            return labels.some((label) => t === label || t.includes(label));
+        }
+
+        async function handleCheckoutOrModal() {
+            const LABELS = [
+                'add to library', 'agregar a la biblioteca',
+                'place order', 'realizar pedido',
+                'passer la commande', 'fazer o pedido'
+            ];
+
+            // Step 1: Wait for #webPurchaseContainer to appear (dynamically created after clicking "Get")
+            console.log('[LootNova] Waiting for webPurchaseContainer to appear...');
+            let container: HTMLElement | null = null;
+            for (let i = 0; i < 30; i++) { // 15 seconds max
+                container = document.querySelector('#webPurchaseContainer');
+                if (container) break;
+                await wait(500);
+            }
+
+            if (container) {
+                console.log('[LootNova] webPurchaseContainer found! Waiting for iframe...');
+                
+                // Step 2: Wait for the iframe inside the container to appear
+                let iframe: HTMLIFrameElement | null = null;
+                for (let i = 0; i < 20; i++) { // 10 seconds max
+                    iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
+                    if (iframe) break;
+                    await wait(500);
+                }
+
+                if (iframe) {
+                    console.log('[LootNova] Iframe found! Waiting for it to load...');
+                    
+                    // Step 3: Wait for the iframe to finish loading
+                    if (iframe.contentDocument?.readyState !== 'complete') {
+                        await new Promise<void>(resolve => {
+                            const onLoad = () => resolve();
+                            iframe!.addEventListener('load', onLoad, { once: true });
+                            // Safety timeout in case load already fired
+                            setTimeout(resolve, 8000);
+                        });
+                    }
+
+                    // Step 4: Wait for iframe to become visible (class 'hidden' is removed)
+                    for (let i = 0; i < 20; i++) {
+                        if (!iframe.classList.contains('hidden')) break;
+                        await wait(500);
+                    }
+
+                    // Step 5: Extra wait for React to hydrate the checkout UI inside the iframe
+                    await wait(3000);
+
+                    // Step 6: Search for the "Add to library" button inside the iframe
+                    console.log('[LootNova] Searching for Add to library button inside iframe...');
+                    for (let attempt = 0; attempt < 12; attempt++) { // 12 seconds max
+                        try {
+                            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                            if (iframeDoc) {
+                                const buttons = iframeDoc.querySelectorAll('button, a[role="button"], a, [role="button"]');
+                                for (const btn of buttons) {
+                                    const el = btn as HTMLElement;
+                                    const text = normalizeText(el.textContent || '');
+                                    const matchesLabel = LABELS.some(l => text === l || text.includes(l));
+                                    const matchesClass = el.classList.contains('payment-order-confirm__btn') ||
+                                                         el.classList.contains('payment-confirm__btn');
+                                    
+                                    if (matchesLabel || matchesClass) {
+                                        console.log('[LootNova] ✅ Found checkout button in iframe:', text);
+                                        el.scrollIntoView({ block: 'center' });
+                                        await wait(200);
+                                        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                                        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                                        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                        await wait(6000); // Wait for Epic to process the order
+                                        return; // Success!
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.log('[LootNova] Error accessing iframe document:', e);
+                        }
+                        await wait(1000);
+                    }
+                }
+            }
+
+            // Fallback: check main DOM (in case Epic changes to a non-iframe modal)
+            console.log('[LootNova] Trying main DOM fallback...');
+            const candidates = Array.from(
+                document.querySelectorAll<HTMLElement>('button, a[role="button"], a')
+            );
+            for (const el of candidates) {
+                if (!isVisible(el)) continue;
+                const testId = el.getAttribute('data-testid');
+                if (testId === 'purchase-cta-button') continue;
+                const text = normalizeText(el.textContent || '');
+                if (LABELS.some(l => text === l || text.includes(l))) {
+                    console.log('[LootNova] ✅ Found checkout button in main DOM:', text);
+                    await realClick(el);
+                    await wait(6000);
+                    return; // Success!
+                }
+            }
+
+            // If we get here, neither iframe nor main DOM had the button
+            // Throw so ContentScriptRunner signals success=false to background
+            throw new Error('Could not find Add to library button in checkout');
         }
 
         async function tryClickDeviceNotSupportedContinue() {

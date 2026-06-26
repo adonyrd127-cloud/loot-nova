@@ -57,11 +57,16 @@ export class EpicPlatform extends BasePlatform {
   }
 
   formatEpicFreeGame(game: EpicElement, future: boolean): FreeGame {
-    const epicSlug =
+    let epicSlug =
         game.productSlug ||
         game.catalogNs?.mappings?.[0]?.pageSlug ||
         game.offerMappings?.[0]?.pageSlug ||
         "";
+    
+    // Clean trailing "/home" slug which leads to 404 redirections on store.epicgames.com
+    if (epicSlug.endsWith('/home')) {
+      epicSlug = epicSlug.substring(0, epicSlug.length - 5);
+    }
     const isEpicBundle = Array.isArray(game.categories) && game.categories.some((c) => c?.path === "bundles");
     const path  = isEpicBundle ? "bundle" : "p";
     const promo = (future
@@ -73,7 +78,7 @@ export class EpicPlatform extends BasePlatform {
     return {
       title: sanitizeGameTitle(game.title ?? ""),
       platform: Platforms.Epic,
-      link: sanitizeUrl(`https://www.epicgames.com/store/en-US/${path}/${epicSlug}`),
+      link: sanitizeUrl(`https://store.epicgames.com/en-US/${path}/${epicSlug}`),
       img:
           game.keyImages?.find((img) => img.type === "Thumbnail")?.url ||
           game.keyImages?.[0]?.url ||
